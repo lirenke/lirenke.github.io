@@ -1,0 +1,499 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>Openvswitch架构理解 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="Openvswitch模块设计的概貌浅析">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2015/11/08/openvswitch_design/" title="Openvswitch架构理解" itemprop="url">Openvswitch架构理解</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2015-11-08T14:58:34.000Z" itemprop="datePublished"> Published Nov 8 2015</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			
+		
+		</div>
+		
+		<p>好久没写博客了，这个习惯还是不能丢。这几个月闲的时间用来2K15和玩小骏了，手痒了，抓紧时间来一发。直接上图：</p>
+<p><img src="/img/2015/openvswitch_1.png" alt=""></p>
+<p>Openvswitch是一个强大的开源软件，实现了在多平台上的虚拟交换功能，说白了就是一个软件层面的交换机。不过呢，开发设计团队在设计之初其实就已经考虑了SDN，非常完美地能够支持各种SDN控制器的无缝衔接。</p>
+<p>从上图来看，最上层是管理层，也可以理解成用户软件层面的东西，这就包括了软件定义网络的概念在里面了。一来，ovs给SDN控制器提供了ovs-db的控制协议，也就是封装了调用ovsdb的方法，成为一套协议，供各种控制器使用；二来，vswitchd服务直接遵循OpenFlow协议，可以往服务里下发各种流表规则。</p>
+<p>中间层是ovs软件的用户态，包括连个主要进程：vswitchd和ovsdb。前者是用户态实现网络交换的核心部件，后者是保存各种配置信息的数据库。用户态存在一张流表，在判断报文路由时会检索该表，得到结果后会刷到内核流表中。对上又开放了接口，起到了承上启下的作用。</p>
+<p>最底下自然是ovs软件的内核态了，主要是Datapath组件。这个模块主要实现了报文的快速转发。报文在初次做选路时，会选择对应ovs网桥的datapath，查看内核态精确流表，查到后就做转发，实现快速转发能力。所以内核态中的流表数量巨大。</p>
+<p>上图有两个数据流，一个是报文处理的数据流，实线，另一个是灰色的控制流。报文转发的大致流程如下：</p>
+<ol>
+<li>网络设备在接入ovs网桥后，自动开启混杂模式。当数据包进入后，首先由Datapath模块处理；</li>
+<li>查询内核态精确流表，如果命中，则快速转发；</li>
+<li>如果没有，则通过NetLink技术从内核态通知到用户态，发送给vswitchd模块处理；</li>
+<li>vswitchd查询用户态模糊流表和精确流表，如果还不命中，在SDN控制器接入的情况下，经过OpenFlow协议，通告给控制器，由控制器处理；</li>
+<li>如果模糊命中，vswitchd服务会同时刷新用户态精确流表和内核态精确流表；如果精确命中，则只更新内核态流表；</li>
+<li>刷新后，reinject重新注入给内核态Datapath组件；</li>
+<li>Datapath重新发起选路，查询内核表，匹配；</li>
+<li>报文转发，结束；</li>
+</ol>
+<p>从这里可以看到，vswitchd和Datapath之间的交互是通过Netlink双向通知完成的，而ovs-dpctl配置Datapath，则有可能是ioctl，不确定。ovs-dbctl和ovs-vsctl可以直接操作ovsdb，比如添加网桥，添加port等行为。</p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/网络/">网络</a>
+</div>
+
+
+  <div class="article-tags">
+  
+  <span></span> <a href="/tags/ovs/">ovs</a>
+  </div>
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2015/11/08/openvswitch_design/" data-title="Openvswitch架构理解 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2015/11/29/try-to-isolate-provider/" title="一种对系统平面和provider解耦的失败尝试">
+  <strong>上一篇：</strong><br/>
+  <span>
+  一种对系统平面和provider解耦的失败尝试</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2015/05/12/how-to-get-src-addr-in-linux/"  title="Linux的网络报文如何确定源地址">
+ <strong>下一篇：</strong><br/> 
+ <span>Linux的网络报文如何确定源地址
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2015/11/08/openvswitch_design/" data-title="Openvswitch架构理解" data-url="http://www.lirenke.net/2015/11/08/openvswitch_design/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ 
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

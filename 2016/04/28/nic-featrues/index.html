@@ -1,0 +1,549 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>网卡一些有趣的属性 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="常用几个属性的基本概念">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2016/04/28/nic-featrues/" title="网卡一些有趣的属性" itemprop="url">网卡一些有趣的属性</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2016-04-28T12:06:55.796Z" itemprop="datePublished"> Published Apr 28 2016</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			
+		
+		</div>
+		
+		<p>Linux中修改网卡的一些属性，是调优整个系统中网络性能的手段之一。</p>
+<p>网卡有许多特性，一般可以用“ethtool -k [NIC]”的命令来查看属性打开的状态，比如：</p>
+<pre><code>root@ubuntu:~# ethtool -k eth0
+Features for eth0:
+rx-checksumming: off
+tx-checksumming: on
+    tx-checksum-ipv4: off [fixed]
+    tx-checksum-ip-generic: on
+    tx-checksum-ipv6: off [fixed]
+    tx-checksum-fcoe-crc: off [fixed]
+    tx-checksum-sctp: off [fixed]
+scatter-gather: on
+    tx-scatter-gather: on
+    tx-scatter-gather-fraglist: off [fixed]
+tcp-segmentation-offload: on
+    tx-tcp-segmentation: on
+    tx-tcp-ecn-segmentation: off [fixed]
+    tx-tcp6-segmentation: off [fixed]
+udp-fragmentation-offload: off [fixed]
+generic-segmentation-offload: on
+generic-receive-offload: on
+large-receive-offload: off [fixed]
+rx-vlan-offload: on
+tx-vlan-offload: on [fixed]
+ntuple-filters: off [fixed]
+receive-hashing: off [fixed]
+highdma: off [fixed]
+rx-vlan-filter: on [fixed]
+vlan-challenged: off [fixed]
+tx-lockless: off [fixed]
+netns-local: off [fixed]
+tx-gso-robust: off [fixed]
+tx-fcoe-segmentation: off [fixed]
+tx-gre-segmentation: off [fixed]
+tx-ipip-segmentation: off [fixed]
+tx-sit-segmentation: off [fixed]
+tx-udp_tnl-segmentation: off [fixed]
+tx-mpls-segmentation: off [fixed]
+fcoe-mtu: off [fixed]
+tx-nocache-copy: off
+loopback: off [fixed]
+rx-fcs: off
+rx-all: off
+tx-vlan-stag-hw-insert: off [fixed]
+rx-vlan-stag-hw-parse: off [fixed]
+rx-vlan-stag-filter: off [fixed]
+l2-fwd-offload: off [fixed]
+busy-poll: off [fixed]
+</code></pre><p>在Linux网卡性能调优中，一般考虑三种路径：接收路径，发送路径和转发路径。</p>
+<p>网上搜罗到讲的不错的文章，记录如下：</p>
+<p>对于发送路径，常用的手段和属性有：</p>
+<ul>
+<li><p>TSO (TCP Segmentation Offload）<br>一种利用网卡分割大数据包，减小 CPU 负荷的一种技术，也被叫做 LSO (Large segment offload) ，如果数据包的类型只能是 TCP，则被称之为 TSO，如果硬件支持 TSO 功能的话，也需要同时支持硬件的 TCP 校验计算和分散 - 聚集 (Scatter Gather) 功能。<br>可以看到 TSO 的实现，需要一些基本条件，而这些其实是由软件和硬件结合起来完成的，对于硬件，具体说来，硬件能够对大的数据包进行分片，分片之后，还要能够对每个分片附着相关的头部。</p>
+</li>
+<li><p>GSO (Generic Segmentation Offload)<br>TSO 是使得网络协议栈能够将大块 buffer 推送至网卡，然后网卡执行分片工作，这样减轻了 CPU 的负荷，但 TSO 需要硬件来实现分片功能；而性能上的提高，主要是因为延缓分片而减轻了 CPU 的负载，因此，可以考虑将 TSO 技术一般化，因为其本质实际是延缓分片，这种技术，在 Linux 中被叫做 GSO(Generic Segmentation Offload)，它比 TSO 更通用，原因在于它不需要硬件的支持分片就可使用，对于支持 TSO 功能的硬件，则先经过 GSO 功能，然后使用网卡的硬件分片能力执行分片；而对于不支持 TSO 功能的网卡，将分片的执行，放在了将数据推送的网卡的前一刻，也就是在调用驱动的 xmit 函数前。</p>
+</li>
+<li><p>NAPI<br>NAPI 的核心在于：在一个繁忙网络，每次有网络数据包到达时，不需要都引发中断，因为高频率的中断可能会影响系统的整体效率，假象一个场景，我们此时使用标准的 100M 网卡，可能实际达到的接收速率为 80MBits/s，而此时数据包平均长度为 1500Bytes，则每秒产生的中断数目为：<br>80M bits/s / (8 Bits/Byte * 1500 Byte) = 6667 个中断 /s<br>每秒 6667 个中断，对于系统是个很大的压力，此时其实可以转为使用轮询 (polling) 来处理，而不是中断；但轮询在网络流量较小的时没有效率，因此低流量时，基于中断的方式则比较合适，这就是 NAPI 出现的原因，在低流量时候使用中断接收数据包，而在高流量时候则使用基于轮询的方式接收。</p>
+</li>
+</ul>
+<p>对于接收路径，常用的属性有：</p>
+<ul>
+<li><p>LRO (Large Receive Offload)<br>Linux 在 2.6.24 中加入了支持 IPv4 TCP 协议的 LRO (Large Receive Offload) ，它通过将多个 TCP 数据聚合在一个 skb 结构，在稍后的某个时刻作为一个大数据包交付给上层的网络协议栈，以减少上层协议栈处理 skb 的开销，提高系统接收 TCP 数据包的能力。<br>当然，这一切都需要网卡驱动程序支持。理解 LRO 的工作原理，需要理解 sk_buff 结构体对于负载的存储方式。</p>
+</li>
+<li><p>GRO (Generic Receive Offload)<br>前面的 LRO 的核心在于：在接收路径上，将多个数据包聚合成一个大的数据包，然后传递给网络协议栈处理，但 LRO 的实现中存在一些瑕疵：</p>
+</li>
+</ul>
+<p>1、数据包合并可能会破坏一些状态</p>
+<p>2、数据包合并条件过于宽泛，导致某些情况下本来需要区分的数据包也被合并了，这对于路由器是不可接收的</p>
+<p>3、在虚拟化条件下，需要使用桥接功能，但 LRO 使得桥接功能无法使用</p>
+<p>4、实现中，只支持 IPv4 的 TCP 协议</p>
+<p>而解决这些问题的办法就是新提出的 GRO(Generic Receive Offload)，首先，GRO 的合并条件更加的严格和灵活，并且在设计时，就考虑支持所有的传输协议，因此，后续的驱动，都应该使用 GRO 的接口，而不是 LRO，内核可能在所有先有驱动迁移到 GRO 接口之后将 LRO 从内核中移除。而 Linux 网络子系统的维护者 David S. Miller 就明确指出，现在的网卡驱动，有 2 个功能需要使用，一是使用 NAPI 接口以使得中断缓和 (interrupt mitigation) ，以及简单的互斥，二是使用 GRO 的 NAPI 接口去传递数据包给网路协议栈。</p>
+<p>在我们真实的生产实践中，LRO和GRO最好能提供用户一个参数去控制，因为在大部分场景下，LRO简直不能用，大大影响TCP的接收性能。GRO的话，默认打开，但是在转发功能的设备上，是绝对不能允许的。</p>
+<p>参考文档：<a href="http://www.ibm.com/developerworks/cn/linux/l-cn-network-pt/" target="_blank" rel="external">http://www.ibm.com/developerworks/cn/linux/l-cn-network-pt/</a></p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/网络/">网络</a>
+</div>
+
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2016/04/28/nic-featrues/" data-title="网卡一些有趣的属性 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2016/04/28/notflask/" title="flask中app.route的模拟实现">
+  <strong>上一篇：</strong><br/>
+  <span>
+  flask中app.route的模拟实现</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2016/04/28/hello-world/"  title="Hello World">
+ <strong>下一篇：</strong><br/> 
+ <span>Hello World
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2016/04/28/nic-featrues/" data-title="网卡一些有趣的属性" data-url="http://www.lirenke.net/2016/04/28/nic-featrues/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ 
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

@@ -1,0 +1,497 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>dd命令中I/O模型的使用 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="介绍了OS中的I/O模型以及dd命令中的一些应用">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2015/01/07/io-model-dd-cmd/" title="dd命令中I/O模型的使用" itemprop="url">dd命令中I/O模型的使用</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2015-01-07T13:06:00.000Z" itemprop="datePublished"> Published Jan 7 2015</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			
+		
+		</div>
+		
+		<p>今天在工作中看到一封邮件，内容大体是开发人员指出了一处测试人员在测试过程中使用了错误的测试硬盘读写方法。测试采用dd命令，这个无可厚非，dd乃linux下与tcpdump齐名的强大命令，但是错的是没有加上FLAG，导致测试的结果显示硬盘写速度异常高。</p>
+<p>结合我之前写的那篇描述linux I/O模型栈的文章，很容易发现不加FLAG，dd命令将直接写给文件系统的页缓存中，写内存的速度当然远远高于写磁盘速度了。所以必须在FLAG中加上direct，这是我最直观的观点。但同事在邮件中指出应该用dsync这个FLAG，我随之看了下dd的帮助，FLAG下能控制IO行为有好几个，有direct，dsync，sync，fullblock，nonblock，nocache等。好奇心来了，看看这些都什么意思吧。</p>
+<ul>
+<li>FLAG — direct：使用direct I/O模式，即绕开文件系统，直接访问磁盘；</li>
+<li>FLAG — dsync：使用同步I/O模式。假设在写过程中设置，os会每当读取一段数据，立马就同步给磁盘；比如我dd命令设置的bs大小为4k，那么就会每次读取4k大小数据，就同步给磁盘，完了再读取下一段；</li>
+<li>FLAG — sync：跟上面的dsync类似，就是除了文件的实质内容外，还包括对文件元数据的同步；</li>
+<li>FLAG — fullblock：只能设置写操作，功能不清楚；</li>
+<li>FLAG — nonblock：使用非阻塞I/O模式。即是说，让dd命令在读写中，使用非阻塞，os的API在不满足读写要求情况下不会阻塞，会立即返回失败，让dd继续尝试直到成功；</li>
+<li>CONV — fdatasync:使用全量数据同步模式。即当所有的数据传输完毕时，最后再调用一把sync命令，使的cache中的数据同步到磁盘中。</li>
+</ul>
+<p>从以上情况看，个人认为要测试磁盘的实际I/O速度，设置成direct标志位是最接近真实值的。因为只有direct才会真正忽略写入到页缓存的时间，同时一旦磁盘空间可满足读写要求就能做读写操作，而nonblock非阻塞标志位会存在dd命令内部的重试等待时间的误差（没看过dd实现，个人观点），其他如dsync和sync，fdatasync都会经过页缓存。网上说dsync标志位应该是测试磁盘性能最标准的用法，因为dsync相当于数据库的一次插入操作。确实，dsync分段同步应该是最接近direct的，难道是direct会折损磁盘寿命所以不推荐的吗？除非os在处理direct的IO数据时，有其他我所不知道的消耗会影响测量数据。</p>
+<p>说到这儿了，也顺便八一八os中的I/O模型吧，温故知新。</p>
+<p>其实关于I/O模型的分类，特别是如何区分同步、异步、阻塞、非阻塞在多种场景下有多种定义，我且认为Richard在网络编程书刊中提到的五大模型为正统。</p>
+<ol>
+<li>阻塞</li>
+<li>非阻塞</li>
+<li>IO多路径复用</li>
+<li>信号</li>
+<li>异步</li>
+</ol>
+<p>第四种信号的方式不太常见，其他如阻塞，非阻塞和IO复用都属于同步模型，只有第五种异步才不是。阻塞模型最常见，比如应用程序调用一个read，然后卡顿，直到返回结果，其实里面经过了从用户态到内核态，等待内核态数据读写ok，通知或者拷贝数据到用户态中的过程；非阻塞就是如果内核态没准备好，上层立马放回错误，需要上层程序自行做个循环来重试，直到成功；<strong>而同步模型的概念，还是以读操作举例，其实就是看是谁把内核态中的读到数据拷贝到用户态中，如果是os自动完成的，必然属于同步模型，如果是os通知app，而app自己做这个操作，则属于异步。而io复用模型也只不过是在一次操作中能处理多个IO任务的阻塞模型而已，其产生的目的就是提高cpu利用率仅此而已。</strong><br>真正的异步操作，是不是就是epoll方法呢，nginx强大的高并发能力依赖的就是此方法，号称异步非阻塞？空了再研究下吧。</p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/linux/">linux</a>
+</div>
+
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2015/01/07/io-model-dd-cmd/" data-title="dd命令中I/O模型的使用 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2015/01/26/migrate-my-blog-to-gitcafe/" title="如何迁移我的blog到gitcafe">
+  <strong>上一篇：</strong><br/>
+  <span>
+  如何迁移我的blog到gitcafe</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2015/01/05/docker-1/"  title="docker学习（一）">
+ <strong>下一篇：</strong><br/> 
+ <span>docker学习（一）
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2015/01/07/io-model-dd-cmd/" data-title="dd命令中I/O模型的使用" data-url="http://www.lirenke.net/2015/01/07/io-model-dd-cmd/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ 
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

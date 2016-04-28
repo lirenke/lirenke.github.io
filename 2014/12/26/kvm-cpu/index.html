@@ -1,0 +1,504 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>CPU虚拟化技术总结 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="入门级摘要">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2014/12/26/kvm-cpu/" title="CPU虚拟化技术总结" itemprop="url">CPU虚拟化技术总结</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2014-12-26T13:35:00.000Z" itemprop="datePublished"> Published Dec 26 2014</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			
+		
+		</div>
+		
+		<p>虚拟化技术大概在上世纪90年代末就已经出现了，这个技术初始就是为了提高计算机的利用率，降低闲置率，并为上层系统搭建提供灵活性。发展到现在，虚拟化技术已经五花八门，云计算这个当下最新最潮的IT技术离不开虚拟化能力。</p>
+<p>我不懂虚拟化技术，闲杂时间看了些概念，特记录于此，有不对的地方我会及时更正。先聊聊CPU的虚拟化，因为存储虚拟化、内存虚拟化等技术都离不开虚拟CPU，这是最核心的能力。</p>
+<p>预备知识：<br>Ring分层：X86架构下的系统，CPU的指令存在特权等级。分为Ring0，Ring1，Ring2，Ring3，内核层关键指令拥有最高级别的Ring0，硬件驱动相关指令运行在Ring1，而用户态进程的指令运行在Ring3。</p>
+<ul>
+<li><p>特权指令<br>指的是控制系统关键资源的，拥有最高权限的指令。比如I/O指令，修改寄存器指令等。</p>
+</li>
+<li><p>敏感指令<br>引入虚拟化后，Guest OS就不能运行在Ring 0上。因此，原本需要在最高级别下执行的指令就不能够直接执行，而是交由VMM处理执行。这部分指令称为敏感指令。</p>
+</li>
+</ul>
+<p>典型的虚拟化技术采用“特权-解除”和“陷入捕获”的思想。特权解除什么意思呢，即不让GuesetOS拥有Ring0的特权，让Hypervisor即VMM掌握Ring0，即有权利控制系统所有资源，GuestOS的普通指令可以直接运行，而特权指令借由VMM来处理；而陷入捕获就是说，当cpu在执行某条指令时，如果不在内核态，就会触发“陷入”，就是抛出一个异常，让系统软件去处理，VMM的设计就是利用了这个特性。</p>
+<p>在X86架构下，特权指令就一定是敏感指令，而敏感指令却并非全部是特权指令。X86下还有一个问题，就是那些希望让VMM进行陷入捕获，从而得到处理的命令不属于特权指令，也就是说CPU无法发生陷入。这样一来，典型的虚拟化技术就不能完全适用于X86架构的虚拟化了。所以当前虚拟化技术原理的区别主要就是处理这个问题上的区别了。</p>
+<p>当前虚拟化模型大致可分为下列三种：</p>
+<ul>
+<li>纯虚拟化（Full）<br>所谓纯虚拟化，即是让GuestOS不感知自己当前是被虚拟出来的，是依托在VMM上的。其核心思想是使用类似转译的方法，所有敏感指令都会被陷入捕获，并且针对以上提到问题中的那些特殊指令，做一层转译，翻译成特权指令，这样就能触发陷入从而得到处理。优点是虚拟能力强，无需对GuestOS做任何修改；缺点是任何指令都要大量陷入，性能较差。</li>
+</ul>
+<ul>
+<li><p>半虚拟化（Para）<br>所谓半虚拟化，就是让GuestOS知道自己是虚拟机，即内核被修改。其核心思想就是改造核心逻辑，对GuestOS内部发送的指令都做了层封装，即使用“超调用”（HyperCall）来直接操作VMM，调用VMM的命令来处理指令。优点是使用超调用，减少频繁的陷入，性能较好；缺点也很明显，即是需要改造GuestOS，适用性不高。所以现在半虚拟化技术没有成为主流技术。</p>
+</li>
+<li><p>芯片辅助虚拟化<br>所谓芯片辅助虚拟化，也就是硬件辅助的虚拟化。这种技术提出了一种新的解决方案，以Xen技术做为代表。其核心思想是切分CPU指令为根模式和非根模式，每个模式都具有Ring0等级的特权。即是让VMM运行在根模式的Ring0下，让GuestOS和GuestOS承载的APP运行在非根模式的Ring0和Ring3下。而其中VMM承担了非根模式到根模式Ring0的转换，这个由硬件来完成，即芯片支持，比如Intel的Intel-VT技术。这种类型的虚拟化技术已经成为主流，因为优势太明显，即不用修改GuestOS，也不影响性能。</p>
+<p>所谓虚拟CPU，即vCPU，其实不是一个真实存在的硬件模拟，这点跟内存虚拟化，I/O虚拟化不同，vCPU是一个抽象、逻辑上的概念。说白了就是VMM层代替完成了CPU的活儿。</p>
+</li>
+</ul>
+<p>寄存器的虚拟原理，假设GuestOS要做个计算操作，让值保持在VR0寄存器上，然后CPU处理结果放在VR1上，那么VMM就会在内存中开辟一个空间，分别用来模拟VR0和VR1。VMM收到VR0上的值后，会调用指令发送到物理CPU上，等到物理CPU计算后返回，又把结果放在VR1上，最终返回给GuestOS，那么从GuestOS上看，实际上就等于使用了真实的物理CPU。</p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/虚拟化/">虚拟化</a>
+</div>
+
+
+  <div class="article-tags">
+  
+  <span></span> <a href="/tags/cpu/">cpu</a><a href="/tags/kvm/">kvm</a>
+  </div>
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2014/12/26/kvm-cpu/" data-title="CPU虚拟化技术总结 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2014/12/28/linux-io-stack/" title="Linux IO 协议栈图示">
+  <strong>上一篇：</strong><br/>
+  <span>
+  Linux IO 协议栈图示</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2014/12/23/cinder-consistency-group/"  title="对consistencygroup的一些研究和实践">
+ <strong>下一篇：</strong><br/> 
+ <span>对consistencygroup的一些研究和实践
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2014/12/26/kvm-cpu/" data-title="CPU虚拟化技术总结" data-url="http://www.lirenke.net/2014/12/26/kvm-cpu/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ 
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

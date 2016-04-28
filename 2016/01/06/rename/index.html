@@ -1,0 +1,487 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>rename操作及Linux对其的加锁方式 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="学习下Linux对元数据的原子性处理">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2016/01/06/rename/" title="rename操作及Linux对其的加锁方式" itemprop="url">rename操作及Linux对其的加锁方式</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2016-01-06T15:10:00.000Z" itemprop="datePublished"> Published Jan 6 2016</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			<ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#多进程读写文件的处理方式"><span class="toc-number">1.</span> <span class="toc-text">多进程读写文件的处理方式</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#rename-操作的加锁方式"><span class="toc-number">2.</span> <span class="toc-text">rename 操作的加锁方式</span></a></li></ol>
+		
+		</div>
+		
+		<h2 id="多进程读写文件的处理方式"><a href="#多进程读写文件的处理方式" class="headerlink" title="多进程读写文件的处理方式"></a>多进程读写文件的处理方式</h2><p>在多进程同时对同一份文件进行读写的场景下，如果没有使用文件锁，直接使用read和write方法，往往会产生并发问题造成文件写坏。</p>
+<p>然后就统一修改了方法，即A和B进程都需要写文件file1，那么A先写到file1.tmp1上，而B先写到file1.tmp2上，然后分别调用mv或者os.rename的方式变更到file1。当然每个进程的临时文件名必须不同。</p>
+<p>这种方式的原理，其实就是利用了Linux的rename系统调用是原子操作的机理。rename的工作原理，摘自<a href="http://baidutech.blog.51cto.com/4114344/743731" target="_blank" rel="external">http://baidutech.blog.51cto.com/4114344/743731</a>：<br><img src="/img/2016/rename1.jpg" alt=""></p>
+<p>rename操作无论操作对象有多大，瞬间完成。秘诀就是rename只是修改了文件系统中dentry目录项的文件名而已，并不会动inode节点内容。如图所示，该操作首先会修改原目录项中fileA成fileB，然后删除原fileB目录项，使得fileB映射的inode节点无法被文件系统索引到了。</p>
+<p>那么Linux是如何对rename方式做原子保护的呢？下面摘录<a href="http://www.ibm.com/developerworks/cn/linux/l-cn-fsmeta/" target="_blank" rel="external">http://www.ibm.com/developerworks/cn/linux/l-cn-fsmeta/</a>文章中的一段解释，就会很清晰明了了。</p>
+<h2 id="rename-操作的加锁方式"><a href="#rename-操作的加锁方式" class="headerlink" title="rename 操作的加锁方式"></a>rename 操作的加锁方式</h2><p>我们先看 rename 操作。Rename 操作的目的是将一个对象进行重命名，因此它涉及到两个操作对象：源（source）与目的（target）。rename操作的复杂性在于它需要先分别对 source 的父目录以及 target 的父目录进行加锁，那么多个 rename 操作之间很容易就会出现死锁的状况。举一个简单的例子来说明：</p>
+<p><img src="/img/2016/rename2.jpg" alt=""></p>
+<p>比如，对于同一个名字空间树状结构，如果有两个 rename 操作同时进行，操作①要将 c1 重命名为 c2，操作②要将 c2 重命名为 c1。假设 rename 操作每次都先对 source 的父目录加锁，再对 target 的父目录加锁。那么，操作①会先对目录 b1 加锁，再对目录 b2 加锁；而操作②会先对目录 b2 加锁，再对目录 b1 加锁。这就产生了一个很典型的死锁场景。</p>
+<p>产生死锁隐患的原因是由于 source 与 target 各自的父目录可以在名字空间树状结构的任意位置。那么，要加锁的两个对象就完全可能不在父子关系的范畴内，因此无法以Linux文件系统的统一加锁规则来处理。而如果从 rename 操作本身的视角出发，以“源”或“目的”的关系来规定加锁顺序，也无法避免死锁隐患，就如上图的例子所示。这样看来，我们似乎无法对 rename 操作制定统一的加锁顺序。那么，Linux 是如何处理这个问题的呢？</p>
+<p>Linux 也没有办法解决多个 rename 操作所造成的死锁隐患，所以它规定每个文件系统内每次只能进行一个 rename 操作。从源代码中可以看到，VFS 在 superblock 结构中定义了一个互斥的 mutex ：s_vfs_rename_mutex（在较早的内核版本中是 s_vfs_rename_sem）。在 Linux 中，每次进行 rename 操作都需要先获得 s_vfs_rename_mutex 这把锁，由此保证每次只会有一个 rename 操作在进行。</p>
+<p>在 rename 操作中，对 source 与 target 各自的父目录进行加锁的函数是 lock_rename()。它同样也须在必要的时候保持“从上到下”的加锁顺序，以确保 rename 不会同其他元数据操作发生死锁。因此，如果这两个父目录（这里设为 A 和 B）是不同的两个目录，必须先判断 A 和 B 是否有亲戚关系，即 A 的父目录的父目录……的父目录是 B，或者相反。如果存在这种关系，必须先对祖先目录进行加锁。如果不存在这种关系，则不需要有明确的先后加锁顺序，可以先对 A 加锁，也可以先对 B 加锁。<br>到此为止，我们看到 rename 操作不会同另一个 rename 操作产生死锁（因为一次只会有一个 rename 操作进行）。也不会同其他元数据操作（这里指除了 rename 与 link 操作之外的操作）产生死锁，因为 rename 操作在必要的时候，与其他操作同样遵循“从上到下”的加锁顺序。还需要考虑的问题就是 rename 操作会不会同 link 操作产生死锁，接下来我们就介绍 link 操作的加锁方式。</p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/linux/">linux</a>
+</div>
+
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2016/01/06/rename/" data-title="rename操作及Linux对其的加锁方式 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2016/02/01/steth_1/" title="初探steth">
+  <strong>上一篇：</strong><br/>
+  <span>
+  初探steth</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2015/11/29/what-is-linux-bridge/"  title="LinuxBridge的疑惑">
+ <strong>下一篇：</strong><br/> 
+ <span>LinuxBridge的疑惑
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2016/01/06/rename/" data-title="rename操作及Linux对其的加锁方式" data-url="http://www.lirenke.net/2016/01/06/rename/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#多进程读写文件的处理方式"><span class="toc-number">1.</span> <span class="toc-text">多进程读写文件的处理方式</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#rename-操作的加锁方式"><span class="toc-number">2.</span> <span class="toc-text">rename 操作的加锁方式</span></a></li></ol>
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

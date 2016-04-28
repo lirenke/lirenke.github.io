@@ -1,0 +1,563 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>搭建简单的GRE和VXLAN的网络模型 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="模拟两个节点上的虚拟机通过vxlan和gre网络通信">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2015/04/09/gre-vxlan-test/" title="搭建简单的GRE和VXLAN的网络模型" itemprop="url">搭建简单的GRE和VXLAN的网络模型</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2015-04-09T14:58:34.000Z" itemprop="datePublished"> Published Apr 9 2015</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			<ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#前言"><span class="toc-number">1.</span> <span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#实验环境"><span class="toc-number">2.</span> <span class="toc-text">实验环境</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#GRE模型"><span class="toc-number">3.</span> <span class="toc-text">GRE模型</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#VXLAN模型"><span class="toc-number">4.</span> <span class="toc-text">VXLAN模型</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#其他"><span class="toc-number">5.</span> <span class="toc-text">其他</span></a></li></ol>
+		
+		</div>
+		
+		<h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>经常能听到网络中的隧道技术，隧道技术的应用很多，比较经典的是VPN，GRE和VXLAN。都是在既有网络上再搭建逻辑上的私有网络，采用的基本方法都是在源端隧道点上，对报文中增加udp头，使之成为普通的udp报文，而在目的端隧道点上去除udp报文，获取原始的报文信息。<br>这些都是粗的理论，细节以后再学习。本文是我根据网络上的博文，亲手实践的。</p>
+<h2 id="实验环境"><a href="#实验环境" class="headerlink" title="实验环境"></a>实验环境</h2><ul>
+<li>一台主机，启动两个ubuntu虚拟机；</li>
+<li>两台虚拟机的ip为192.168.159.130和192.168.159.132</li>
+</ul>
+<p>原理图如下：<br><img src="/img/2015/vxlan_gre_test.jpg" alt=""></p>
+<p>这里的VTEP就是隧道endpoint，可以是GRE也可以是VXLAN的。<br>为什么要加namespace，是模拟物理中的虚拟机报文走向，guest的网络和host的网络本身就是两个不同的网络，os都不同。</p>
+<h2 id="GRE模型"><a href="#GRE模型" class="headerlink" title="GRE模型"></a>GRE模型</h2><p>在其中一个192.168.159.130虚拟机上，主要执行如下命令：</p>
+<ol>
+<li>ip netns add ns0                               //创建一个namespace，用于模拟vm环境</li>
+<li>ip link add veth0 type veth peer name veth1    //创建一对veth</li>
+<li>ip link set veth0 netns ns0                    //把veth0加入到namespace中</li>
+<li>ip netns exec ns0 ip addr add 10.1.1.2/24 dev veth0 //在ns0中给veth0配上IP</li>
+<li>ovs-vsctl add-br br-int                        //创建ovs网桥</li>
+<li>ovs-vsctl add-port br-int veth1                //把veth1加入到网桥作为internal类型的port</li>
+<li>ovs-vsctl add-port br-int gre0 – set interface gre0 type=gre options:remote_ip=192.168.159.132                 //给ovs网桥添加gre类型的port，并指定远端ip</li>
+</ol>
+<p>在另外一个虚拟机上，也执行如上命令，但是gre口的remote_ip要填成192.168.159.130，且veth0的ip指定成10.1.1.1/24即可。<br>另外要补充的是，在namespace中，需要确保路由存在，默认在空间里的veth0是属于down状态的，要执行：</p>
+<pre><code>ip netns exec ns0 ip link set veth0 up
+</code></pre><p>拉起来后，这样系统就会自动添加一条路由信息，如：</p>
+<pre><code>10.1.1.0/24 dev veth0  proto kernel  scope link  src 10.1.1.1 
+</code></pre><p>然后，在192.168.159.132的机器上，用ping命令ping对端的10.1.1.2，注意要在namespace下ping，如<br>    ip netns exec ns0 ping 10.1.1.2</p>
+<p>便会有以下打印：</p>
+<pre><code>root@ubuntu:~# ip netns exec ns0 ping 10.1.1.2
+PING 10.1.1.2 (10.1.1.2) 56(84) bytes of data.
+64 bytes from 10.1.1.2: icmp_seq=1 ttl=64 time=2.06 ms
+64 bytes from 10.1.1.2: icmp_seq=2 ttl=64 time=0.649 ms
+64 bytes from 10.1.1.2: icmp_seq=3 ttl=64 time=0.851 ms
+64 bytes from 10.1.1.2: icmp_seq=4 ttl=64 time=0.859 ms
+64 bytes from 10.1.1.2: icmp_seq=5 ttl=64 time=0.564 ms
+</code></pre><p>在192.168.159.130所在网口eth0上抓包，结果为：</p>
+<pre><code>root@ubuntu:~# tcpdump -i eth0 src 192.168.159.132
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+00:11:08.983087 IP 192.168.159.132 &gt; 192.168.159.130: GREv0, length 102: IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5174, seq 100, length 64
+00:11:09.982124 IP 192.168.159.132 &gt; 192.168.159.130: GREv0, length 102: IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5174, seq 101, length 64
+00:11:10.984115 IP 192.168.159.132 &gt; 192.168.159.130: GREv0, length 102: IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5174, seq 102, length 64
+00:11:11.983123 IP 192.168.159.132 &gt; 192.168.159.130: GREv0, length 102: IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5174, seq 103, length 64
+</code></pre><p>再对veth1抓包，结果为：</p>
+<pre><code>root@ubuntu:~# tcpdump -i veth1
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on veth1, link-type EN10MB (Ethernet), capture size 262144 bytes
+00:09:45.901800 IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5174, seq 17, length 64
+00:09:45.901892 IP 10.1.1.2 &gt; 10.1.1.1: ICMP echo reply, id 5174, seq 17, length 64
+00:09:46.902296 IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5174, seq 18, length 64
+00:09:46.902458 IP 10.1.1.2 &gt; 10.1.1.1: ICMP echo reply, id 5174, seq 18, length 64
+00:09:47.903955 IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5174, seq 19, length 64
+</code></pre><p>可以看到，在eth0，走的是GREv0的192.168.159.0网段，经过gre0口剥离后，在veth1上，就变成10.1.1.0网段的报文了。</p>
+<h2 id="VXLAN模型"><a href="#VXLAN模型" class="headerlink" title="VXLAN模型"></a>VXLAN模型</h2><p>VXLAN的模型和GRE一样，只不过是用VXLAN类型的端口替换了gre类型的端口。<br>操作步骤如下：</p>
+<ol>
+<li><p>在上述GRE模型的基础上，删除gre0口：</p>
+<p> ovs-vsctl del-port br-int gre0</p>
+</li>
+<li><p>添加vxlan口，比如：</p>
+<p> ovs-vsctl add-port br-int vxlan0 – set interface vxlan0 type=vxlan options:remote_ip=192.168.159.132</p>
+</li>
+</ol>
+<p>在两个节点都这么操作，当然remote_ip需要根据具体单板填写。</p>
+<p>执行后，同样对eth0上抓包，结果为：</p>
+<pre><code>root@ubuntu:~# tcpdump -i eth0 src 192.168.159.132
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+00:34:15.888589 IP 192.168.159.132.45741 &gt; 192.168.159.130.4789: VXLAN, flags [I] (0x08), vni 0
+IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5411, seq 397, length 64
+00:34:16.890482 IP 192.168.159.132.45741 &gt; 192.168.159.130.4789: VXLAN, flags [I] (0x08), vni 0
+IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5411, seq 398, length 64
+00:34:17.890829 IP 192.168.159.132.45741 &gt; 192.168.159.130.4789: VXLAN, flags [I] (0x08), vni 0
+IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5411, seq 399, length 64
+</code></pre><p>在veth1上抓，为：</p>
+<pre><code>root@ubuntu:~# tcpdump -i veth1
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on veth1, link-type EN10MB (Ethernet), capture size 262144 bytes
+00:28:00.714422 IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5411, seq 22, length 64
+00:28:00.714509 IP 10.1.1.2 &gt; 10.1.1.1: ICMP echo reply, id 5411, seq 22, length 64
+00:28:01.714182 IP 10.1.1.1 &gt; 10.1.1.2: ICMP echo request, id 5411, seq 23, length 64
+00:28:01.714214 IP 10.1.1.2 &gt; 10.1.1.1: ICMP echo reply, id 5411, seq 23, length 64
+</code></pre><p>从结果看，在eth0上，VXLAN类型报文被接收，网段为192.168.159.0，通过解分装，在veth1上就同样是10.1.1.0网段的报文了。</p>
+<h2 id="其他"><a href="#其他" class="headerlink" title="其他"></a>其他</h2><p>VXLAN和GRE其实在技术细节上是有很大区别的。据说，VXLAN是通过组播的技术，发送组播加入包后，后续的私有网络通信都是通过组播来搞定；而GRE的话，有个硬伤，就是网络节点互相之间必须有私有隧道，即两两间都要有链接，当节点规模大的时候，维护起来成本太高，而VXLAN通过组播解决了这个问题。（听说neutron把VXLAN的组播阉割了，等同于GRE）</p>
+<p>另外，观察VXLAN的报文，发现报文一直是被本机的4789端口收，用命令看了下：</p>
+<pre><code>root@ubuntu:~# netstat -a|grep 4789
+udp        0      0 *:4789                  *:*
+</code></pre><p>删了节点上的vxlan口后，发现这条记录不见了，说明ovs网桥在创建VXLAN类型的port时，都会监听4789端口。而GRE类型的port则不会。</p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/网络/">网络</a>
+</div>
+
+
+  <div class="article-tags">
+  
+  <span></span> <a href="/tags/gre/">gre</a><a href="/tags/vxlan/">vxlan</a>
+  </div>
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2015/04/09/gre-vxlan-test/" data-title="搭建简单的GRE和VXLAN的网络模型 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2015/05/05/live-migrate-bugfix-in-kilo/" title="K版本热迁移的一些bug修复点">
+  <strong>上一篇：</strong><br/>
+  <span>
+  K版本热迁移的一些bug修复点</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2015/03/29/switch-ports/"  title="交换机端口类型理解">
+ <strong>下一篇：</strong><br/> 
+ <span>交换机端口类型理解
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2015/04/09/gre-vxlan-test/" data-title="搭建简单的GRE和VXLAN的网络模型" data-url="http://www.lirenke.net/2015/04/09/gre-vxlan-test/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#前言"><span class="toc-number">1.</span> <span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#实验环境"><span class="toc-number">2.</span> <span class="toc-text">实验环境</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#GRE模型"><span class="toc-number">3.</span> <span class="toc-text">GRE模型</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#VXLAN模型"><span class="toc-number">4.</span> <span class="toc-text">VXLAN模型</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#其他"><span class="toc-number">5.</span> <span class="toc-text">其他</span></a></li></ol>
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

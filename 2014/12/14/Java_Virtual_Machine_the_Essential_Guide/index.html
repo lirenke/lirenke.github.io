@@ -1,0 +1,553 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>Java Virtual Machine - the Essential Guide | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="从架构，ClassLoader，执行引擎，线程，内存模型，性能优化以及性能监视等介绍了JVM的内容">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2014/12/14/Java_Virtual_Machine_the_Essential_Guide/" title="Java Virtual Machine - the Essential Guide" itemprop="url">Java Virtual Machine - the Essential Guide</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2014-12-14T14:58:34.000Z" itemprop="datePublished"> Published Dec 14 2014</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			<ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#Introduction"><span class="toc-number">1.</span> <span class="toc-text">Introduction</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Architecture"><span class="toc-number">2.</span> <span class="toc-text">Architecture</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Class-Loader"><span class="toc-number">3.</span> <span class="toc-text">Class Loader</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Execution-Engine"><span class="toc-number">4.</span> <span class="toc-text">Execution Engine</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Memory-Model"><span class="toc-number">5.</span> <span class="toc-text">Memory Model</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Threads"><span class="toc-number">6.</span> <span class="toc-text">Threads</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Performance-Optimization"><span class="toc-number">7.</span> <span class="toc-text">Performance Optimization</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Performance-Monitoring"><span class="toc-number">8.</span> <span class="toc-text">Performance Monitoring</span></a></li></ol>
+		
+		</div>
+		
+		<p>该文转自 <a href="https://anturis.com/blog/java-virtual-machine-the-essential-guide/" target="_blank" rel="external">https://anturis.com/blog/java-virtual-machine-the-essential-guide/</a></p>
+<h2 id="Introduction"><a href="#Introduction" class="headerlink" title="Introduction"></a>Introduction</h2><p>Java Virtual Machine (JVM) is an execution environment for Java applications. In the general sense, the JVM is an abstract computing machine defined by a specification, which is designed to interpret bytecode that is compiled from Java source code. More commonly, the JVM refers to the concrete implementation of this specification with a strict instruction set and a comprehensive memory model. It can also refer to the runtime instance of the software implementation. The primary reference implementation of the JVM is HotSpot. </p>
+<p>The JVM specification ensures that any implementation is able to interpret bytecode in exactly the same way. It can be implemented as a process, a standalone Java OS, or a processor chip that executes bytecode directly. Most commonly known JVMs are software implementations that run as processes on popular platforms (Windows, OS X, Linux, Solaris, etc.).</p>
+<p>The architecture of the JVM enables detailed control over the actions that a Java application performs. It runs in a sandbox environment and ensures that the application does not have access to the local file system, processes, and networking without proper permission. In case of remote execution, code should be signed with a certificate.</p>
+<p>Besides interpreting Java bytecode, most software implementations of the JVM include a just-in-time (JIT) compiler that generates machine code for frequently used methods. Machine code is the native language of the CPU and can be executed much faster than interpreting bytecode.</p>
+<p>You do not need to understand how the JVM works to develop or run Java applications. However, you can avoid many performance problems that are in fact straightforward if you do have some understanding.</p>
+<h2 id="Architecture"><a href="#Architecture" class="headerlink" title="Architecture"></a>Architecture</h2><p>The JVM specification defines the subsystems and their external behavior. The JVM has the following major subsystems:</p>
+<ul>
+<li><p><strong>Class Loader.</strong> Responsible for reading Java source code and loading classes into the data areas.</p>
+</li>
+<li><p><strong>Execution Engine.</strong> Responsible for executing instructions from the data areas.</p>
+</li>
+</ul>
+<p>The data areas occupy memory that is allocated by the JVM from the underlying OS.</p>
+<p><img src="/img/2014/jvm-architecture.png" alt=""></p>
+<h2 id="Class-Loader"><a href="#Class-Loader" class="headerlink" title="Class Loader"></a>Class Loader</h2><p>The JVM uses different class loaders organized into the following hierarchy:</p>
+<ul>
+<li>The <em>bootstrap class loader</em> is the parent for other class loaders. It loads the core Java libraries and is the only one written in native code.</li>
+<li>The <em>extension class loader</em> is a child of the bootstrap class loader. It loads the extension libraries.</li>
+<li>The <em>system class loader</em> is a child of the extension class loader. It loads the application class files that are found in the classpath.</li>
+<li>A <em>user-defined class loader</em> is a child of the system class loader or another user-defined class loader.</li>
+</ul>
+<p>When a class loader receives a request to load a class, it checks the cache to see if the class has already been loaded, then delegates the request to the parent. If the parent fails to load the class, then the child attempts to load the class itself. A child class loader can check the cache of the parent class loader, but the parent cannot see classes loaded by the child. The design is such because a child class loader should not be allowed to load classes that are already loaded by its parent.</p>
+<h2 id="Execution-Engine"><a href="#Execution-Engine" class="headerlink" title="Execution Engine"></a>Execution Engine</h2><p>The execution engine executes commands from the bytecode loaded into the data areas one by one. To make the bytecode commands readable to the machine, the execution engine uses two methods.</p>
+<ul>
+<li><strong>Interpretation.</strong> The execution engine changes each command to machine language as it is encountered.</li>
+<li><strong>Just-in-time (JIT) compilation.</strong> If a method is used frequently, the execution engine compiles it to native code and stores it in the cache. After that, all commands associated with this method are executed directly without interpretation.</li>
+</ul>
+<p>Although JIT compilation takes more time than interpretation, it is done only once for a method that might get called thousands of times. Running such method as native code saves a lot of execution time compared to interpreting each command one by one every time it is encountered.</p>
+<p>JIT compilation is not a requirement of the JVM specification, and it is not the only technique that is used to improve JVM performance. The specification defines only which bytecode commands relate to which native code; it is up to the implementation to define how the execution engine actually performs this conversion.</p>
+<h2 id="Memory-Model"><a href="#Memory-Model" class="headerlink" title="Memory Model"></a>Memory Model</h2><p>The Java memory model is built on the concept of automatic memory management. When an object is no longer referenced by an application, a garbage collector discards it and this frees up memory. This is different from many other programming languages, where you have to manually unload the object from memory.</p>
+<p>The JVM allocates memory from the underlying OS and separates it into the following areas.</p>
+<ul>
+<li><strong>Heap Space.</strong> This is a shared memory area used to hold the objects that a garbage collector scans.</li>
+<li><strong>Method Area.</strong> This area was previously known as the permanent generation where loaded classes were stored. It has recently been removed from the JVM, and classes are now loaded as metadata to native memory of the underlying OS.</li>
+<li><strong>Native Area.</strong> This area holds references and variables of primitive types.</li>
+</ul>
+<p>Breaking the heap up into generations ensures efficient memory management because the garbage collector does not need to scan the whole heap. Most objects live for a very short time, and those that survive longer will likely not need to be discarded at all until the application terminates.</p>
+<p>When a Java application creates an object, it is stored in the <strong>eden pool</strong> of the heap. Once it is full, a minor garbage collection is triggered at the eden pool. First, the garbage collector marks dead objects (those that are not referenced by the application any more) and increments the age of live objects (the age is represented by the number of garbage collections that the object has survived). Then the garbage collector discards dead objects and moves live objects to the <strong>survivor pool</strong>, leaving the eden pool clear.</p>
+<p>When a surviving object reaches a certain age, it is moved to the old generation of the heap: the <strong>tenured pool</strong>. Eventually, the tenured pool fills up and a major garbage collection is triggered to clean it up.</p>
+<p>When a garbage collection is performed, all application threads are stopped, causing a pause. Minor garbage collections are frequent, but are optimized to quickly remove dead objects, which are the major part of the young generation. Major garbage collections are much slower because they involve mostly live objects. There are different kinds of garbage collectors, some may be faster in certain situations when performing a major garbage collection.</p>
+<p>The heap size is dynamic. Memory is allocated to the heap only if it is required. When the heap fills up, the JVM reallocates more memory, until the maximum is reached. Memory reallocation also causes the application to stop briefly.</p>
+<h2 id="Threads"><a href="#Threads" class="headerlink" title="Threads"></a>Threads</h2><p>The JVM runs in a single process, but it can execute several threads concurrently, each one running its own method. This is an essential part of Java. An application such as an instant messenger client, runs at least two threads; one that waits for user input and one that checks the server for incoming messages. Another example is a server application that executes requests in different threads: sometimes each request can involve several threads running concurrently.</p>
+<p>All threads share the memory and other resources available to the JVM process. Each JVM process starts a main thread at the entry point (the main() method). Other threads are started from it and present an independent path of execution. Threads can run in parallel on separate processors, or they can share one processor. The thread scheduler controls how threads take turns executing on a single processor.</p>
+<h2 id="Performance-Optimization"><a href="#Performance-Optimization" class="headerlink" title="Performance Optimization"></a>Performance Optimization</h2><p>The performance of the JVM depends on how well it is configured to match the functionality of the application. Although memory is automatically managed using garbage collection and memory reallocation processes, you have control over their frequency. In general, the more memory you have available for your application, the less memory management processes are required, which pause your application.</p>
+<p>If garbage collections are occurring more frequently than you would want, you can start the JVM with more maximum heap size. The longer it takes for a generation of the heap to fill up, the fewer garbage collections occur. To configure the maximum heap size, use the -Xmx option when you start the JVM. By default, the maximum heap size is set to either 1/4th of the physical memory available to the OS, or to 1 GB (whichever is the smallest).</p>
+<p>If the problem is with memory reallocation, you can set the initial heap size to be the same as the maximum. This means that the JVM will never need to allocate more memory to the heap. However, you will also lose the adaptive memory optimization gained from dynamic heap sizing. The heap will be of fixed size from the moment you start your application. To configure the initial heap size, use the -Xms option when you start the JVM. By default, the initial heap size is set to either 1/64th of the physical memory available to the OS, or to some reasonable minimum that is different for different platforms (whichever is the largest).</p>
+<p>If you know which garbage collections (minor or major) are causing performance degradation, you can set the ratio between the young and old generations without changing the overall heap size. For applications that create a lot of short-lived objects, increase the size of the young generation (this will leave less memory for the old generation). For applications that operate with a lot of longer surviving objects, increase the size of the old generation (by setting less memory for the young generation). The following ways can be used to control the sizes of the young and old generations.</p>
+<ul>
+<li>Specify the ratio between the young and old generation using the -XX:NewRatio option when you start the JVM. For example, to make the old generation five times larger than the young generation, specify -XX:NewRatio=5. By default, the ratio is set to 2 (the old generation occupies ⅔ of the heap, and the young generation occupies ⅓).</li>
+<li>Specify the initial and maximum size of the young generation using the -Xmn option when you start the JVM. The old generation size will be set to whatever memory remains on the heap.</li>
+<li>Specify the initial and maximum size of the young generation separately, using the -XX:NewSize and -XX:MaxNewSize options when you start the JVM. The old generation size will be set to whatever memory remains on the heap.</li>
+</ul>
+<p>Most applications (especially servers) require concurrent execution, handling a number of tasks. Some of these tasks are more important at a given moment, while others are background tasks that can be executed whenever the CPU is not busy doing anything else. Tasks are executed in different threads. For example, a server may have a low-priority thread that calculates statistics based on some data and starts a higher-priority thread to handle incoming data, and another higher-priority thread to serve a request for some of the data that was calculated. There can be many sources of data, and many clients requesting data from the server. Each request will briefly stop the execution of the background calculation thread to serve the request. So you have to monitor the number of threads that are running and make sure there is enough CPU time for the thread that is making the necessary calculations.</p>
+<p>Each thread has a stack that holds the method calls, return addresses, and so on. Some memory is allocated for the stack, and if there are too many threads, this can lead to an OutOfMemory error. Even if you have enough heap memory allocated for objects, your application may be unable to start a new thread. In this case, consider limiting the maximum size of the stack in threads. To configure the thread stack size, use the -Xss option when you start the JVM. By default, the thread stack size is set to 320 KB or 1024 KB, depending on the platform.</p>
+<h2 id="Performance-Monitoring"><a href="#Performance-Monitoring" class="headerlink" title="Performance Monitoring"></a>Performance Monitoring</h2><p>Whether you are developing or running a Java application, it is important to monitor the performance of the JVM. Configuring the JVM is not a one-time affair, especially if you are dealing with a server running on Java. You have to constantly check the allocation and usage of both heap and non-heap memory, the number of threads that the application creates, and the number of classes that are loaded into memory. These are the core parameters.</p>
+<p>Using the Anturis Console, you can set up monitoring of the JVM for any hardware component (such as a computer running a Tomcat web server) in your infrastructure by adding the JVM monitor to the component.</p>
+<p>The JVM monitor can measure the following metrics.</p>
+<ul>
+<li><p><em>Total memory usage (MB)</em> is the amount of memory that the JVM uses. This metric can affect overall performance of the underlying OS if the JVM consumes all available memory.</p>
+</li>
+<li><p><em>Heap memory usage (MB)</em> is the amount of memory that the JVM allocates for objects used by the running Java application. Unused objects are regularly removed from the heap by the garbage collector. If this metric grows, it can indicate that your application is not removing references for unused objects, or that you need to configure the garbage collector properly.</p>
+</li>
+<li><p><em>Non-Heap memory usage (MB)</em> is the amount of memory allocated for the method area and the code cache. The method area is used to store references to loaded classes. If these references are not removed properly, the permanent generation pool can increase every time the application is redeployed, leading to a non-heap memory leak. It can also indicate a thread-creation leak.</p>
+</li>
+<li><p><em>Total pool memory usage (MB)</em> is all the memory used by the various memory pools allocated by the JVM (that is, the total memory without the code cache area). This can give you an idea of how much memory your application consumes without the JVM overhead.</p>
+</li>
+<li><p><em>Threads (threads)</em> is the number of active threads in the JVM. For example, each request to a Tomcat server is processed in a separate thread, so this metric can give you an idea of the number of requests that are currently being served, and whether it affects the background tasks that are running in threads set to a lower priority.</p>
+</li>
+<li><p><em>Classes (classes)</em> is the number of loaded classes. If your application dynamically creates a lot of classes, this can be a source of a severe memory leak.</p>
+</li>
+</ul>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/java/">java</a>
+</div>
+
+
+  <div class="article-tags">
+  
+  <span></span> <a href="/tags/java/">java</a><a href="/tags/jvm/">jvm</a>
+  </div>
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2014/12/14/Java_Virtual_Machine_the_Essential_Guide/" data-title="Java Virtual Machine - the Essential Guide | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2014/12/16/option-and-stock/" title="关于公司期权、股票等概念的摘录">
+  <strong>上一篇：</strong><br/>
+  <span>
+  关于公司期权、股票等概念的摘录</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2014/12/14/Guest-CPU-model-configuration-in-libvirt-with-QEMU-KVM/"  title="QEMU/KVM架构下libvirt对客户机CPU模型的配置">
+ <strong>下一篇：</strong><br/> 
+ <span>QEMU/KVM架构下libvirt对客户机CPU模型的配置
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2014/12/14/Java_Virtual_Machine_the_Essential_Guide/" data-title="Java Virtual Machine - the Essential Guide" data-url="http://www.lirenke.net/2014/12/14/Java_Virtual_Machine_the_Essential_Guide/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#Introduction"><span class="toc-number">1.</span> <span class="toc-text">Introduction</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Architecture"><span class="toc-number">2.</span> <span class="toc-text">Architecture</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Class-Loader"><span class="toc-number">3.</span> <span class="toc-text">Class Loader</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Execution-Engine"><span class="toc-number">4.</span> <span class="toc-text">Execution Engine</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Memory-Model"><span class="toc-number">5.</span> <span class="toc-text">Memory Model</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Threads"><span class="toc-number">6.</span> <span class="toc-text">Threads</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Performance-Optimization"><span class="toc-number">7.</span> <span class="toc-text">Performance Optimization</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Performance-Monitoring"><span class="toc-number">8.</span> <span class="toc-text">Performance Monitoring</span></a></li></ol>
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

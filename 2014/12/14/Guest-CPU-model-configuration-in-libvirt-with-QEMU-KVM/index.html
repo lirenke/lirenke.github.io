@@ -1,0 +1,581 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>QEMU/KVM架构下libvirt对客户机CPU模型的配置 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" content="各大cpu虚拟化技术架构下的区别：
+
+Xen的虚拟cpu是直接passthrough了host上cpu；
+QEMU/KVM的架构下，客户机看到的是名为“qemu32”或是”qemu64”的通用模型；
+vmware更为高明，把所有物理cpu分成几个组，每个组存在一个“基线”cpu(Baseline c">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2014/12/14/Guest-CPU-model-configuration-in-libvirt-with-QEMU-KVM/" title="QEMU/KVM架构下libvirt对客户机CPU模型的配置" itemprop="url">QEMU/KVM架构下libvirt对客户机CPU模型的配置</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2014-12-14T05:57:35.000Z" itemprop="datePublished"> Published Dec 14 2014</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			
+		
+		</div>
+		
+		<p>各大cpu虚拟化技术架构下的区别：</p>
+<ul>
+<li>Xen的虚拟cpu是直接passthrough了host上cpu；</li>
+<li>QEMU/KVM的架构下，客户机看到的是名为“qemu32”或是”qemu64”的通用模型；</li>
+<li>vmware更为高明，把所有物理cpu分成几个组，每个组存在一个“基线”cpu(Baseline cpu)模型提供给客户机；</li>
+</ul>
+<p>可以看到vmware的做法，让其很容易地在分布着同样物理cpu组的主机之间，让客户机安全地做类似迁移的操作。这点我有体会，在实际用openstack做热迁移时，经常是由于cpu指令集的差异导致热迁移失败。<br>libvirt在0.7.5版本开始有了个一个控制客户机cpu的方法接口。</p>
+<p>“virsh capabilites”方法能够显示hypervisoer或host的各项能力，cpu模型参数也在其中。这里要说明下，X86架构下（AMD&amp;Intel），cpu的指标使用一个4字节，32-bit的整数来表示，每一个比特位表示cpu其中一个能力。但是在QEMU/KVM架构下，支持的cpu架构不仅仅是X86，所以这种以CPUID掩码的形式就并不通用了，QEMU使用的方案是用一些特定的字符串来表示相应的cpu能力。libvirt沿用了QEMU的做法。</p>
+<p>以下是我使用的一个虚机(分了1核1线程)的“virsh capabilities”显示结果:<br>    <capabilities></capabilities></p>
+<pre><code>&lt;host&gt;
+&lt;uuid&gt;564df1a1-091c-0bec-0948-e65ad46dbd1c&lt;/uuid&gt;
+&lt;cpu&gt;
+  &lt;arch&gt;x86_64&lt;/arch&gt;
+  &lt;model&gt;Westmere&lt;/model&gt;
+  &lt;vendor&gt;Intel&lt;/vendor&gt;
+  &lt;topology sockets=&apos;1&apos; cores=&apos;1&apos; threads=&apos;1&apos;/&gt;
+  &lt;feature name=&apos;invtsc&apos;/&gt;
+  &lt;feature name=&apos;erms&apos;/&gt;
+  &lt;feature name=&apos;smep&apos;/&gt;
+  &lt;feature name=&apos;fsgsbase&apos;/&gt;
+  &lt;feature name=&apos;rdtscp&apos;/&gt;
+  &lt;feature name=&apos;pdpe1gb&apos;/&gt;
+  &lt;feature name=&apos;hypervisor&apos;/&gt;
+  &lt;feature name=&apos;rdrand&apos;/&gt;
+  &lt;feature name=&apos;f16c&apos;/&gt;
+  &lt;feature name=&apos;avx&apos;/&gt;
+  &lt;feature name=&apos;osxsave&apos;/&gt;
+  &lt;feature name=&apos;xsave&apos;/&gt;
+  &lt;feature name=&apos;movbe&apos;/&gt;
+  &lt;feature name=&apos;x2apic&apos;/&gt;
+  &lt;feature name=&apos;pcid&apos;/&gt;
+  &lt;feature name=&apos;fma&apos;/&gt;
+  &lt;feature name=&apos;vmx&apos;/&gt;
+  &lt;feature name=&apos;pclmuldq&apos;/&gt;
+  &lt;feature name=&apos;ss&apos;/&gt;
+  &lt;feature name=&apos;ds&apos;/&gt;
+  &lt;feature name=&apos;vme&apos;/&gt;
+  &lt;pages unit=&apos;KiB&apos; size=&apos;4&apos;/&gt;
+  &lt;pages unit=&apos;KiB&apos; size=&apos;2048&apos;/&gt;
+&lt;/cpu&gt;
+</code></pre><p>假设我的这个虚机是一个物理机，以上显示的就是host上的cpu所有能力了。那么要启动一个客户机，哪些能力应该暴露出去呢？如果确定我的客户机永远不会做热迁移，那么很显然，所有能力全部被直通都可以。在一个数据中心中，很难保证说我每台机器的cpu能力都是相同的，而且客户机永远不会做迁移。</p>
+<p>所以libvirt提供了一个API，传入一些表示host CPU能力的xml片段列表，然后计算出这些cpu能力的交集，最后再转换成xml返回。</p>
+<p>来个例子，假设有一台古老的奔腾机器，其cpu能力如下：<br>    <capabilities></capabilities></p>
+<pre><code>&lt;host&gt;
+&lt;cpu&gt;
+  &lt;arch&gt;i686&lt;/arch&gt;
+  &lt;model&gt;pentium3&lt;/model&gt;
+  &lt;topology sockets=&apos;1&apos; cores=&apos;2&apos; threads=&apos;1&apos;/&gt;
+  &lt;feature name=&apos;lahf_lm&apos;/&gt;
+  &lt;feature name=&apos;lm&apos;/&gt;
+  &lt;feature name=&apos;xtpr&apos;/&gt;
+  &lt;feature name=&apos;cx16&apos;/&gt;
+  &lt;feature name=&apos;ssse3&apos;/&gt;
+  &lt;feature name=&apos;tm2&apos;/&gt;
+  &lt;feature name=&apos;est&apos;/&gt;
+  &lt;feature name=&apos;vmx&apos;/&gt;
+  &lt;feature name=&apos;ds_cpl&apos;/&gt;
+  &lt;feature name=&apos;monitor&apos;/&gt;
+  &lt;feature name=&apos;pni&apos;/&gt;
+  &lt;feature name=&apos;pbe&apos;/&gt;
+  &lt;feature name=&apos;tm&apos;/&gt;
+  &lt;feature name=&apos;ht&apos;/&gt;
+  &lt;feature name=&apos;ss&apos;/&gt;
+  &lt;feature name=&apos;sse2&apos;/&gt;
+  &lt;feature name=&apos;acpi&apos;/&gt;
+  &lt;feature name=&apos;ds&apos;/&gt;
+  &lt;feature name=&apos;clflush&apos;/&gt;
+  &lt;feature name=&apos;apic&apos;/&gt;
+&lt;/cpu&gt;
+</code></pre><p>那么，把这个cpu段落和我的cpu段落拼接成一个“cpu-compare.xml”，执行语句后：</p>
+<pre><code>root@ubuntu:~# virsh cpu-baseline cpu-compare.xml 
+&lt;cpu mode=&apos;custom&apos; match=&apos;exact&apos;&gt;
+&lt;model fallback=&apos;allow&apos;&gt;Penryn&lt;/model&gt;
+&lt;feature policy=&apos;require&apos; name=&apos;vmx&apos;/&gt;
+&lt;feature policy=&apos;require&apos; name=&apos;ss&apos;/&gt;
+&lt;feature policy=&apos;require&apos; name=&apos;ds&apos;/&gt;
+&lt;feature policy=&apos;require&apos; name=&apos;vme&apos;/&gt;
+&lt;feature policy=&apos;disable&apos; name=&apos;nx&apos;/&gt;
+&lt;feature policy=&apos;disable&apos; name=&apos;syscall&apos;/&gt;
+&lt;feature policy=&apos;disable&apos; name=&apos;sse4.1&apos;/&gt;
+&lt;/cpu&gt;
+</code></pre><p>能够看到，libvirt自动重新生成了一个基线cpu的xml片段。着就意味着，如果你用这个cpu片段去生成客户机，那么这个客户机将能够在我的具有i7cpu的机器和奔腾旧机器之间安全地做热迁移。</p>
+<p>有几个参数要说明下，<br>cpu的mode，表示虚拟cpu的方法，比如直通或是自定义；在执行cpu-baseline后基本一定就是custom自定义了；直通的好像可以填入“host-passthrough”；<br>cpu的match，定义host和guest之间的cpu映射行为：</p>
+<ul>
+<li>match=”minimum” - host的cpu必须至少具备此xml定义的客户机cpu的所有能力。如果host有额外的cpu特性，这些特性也会传给客户机。</li>
+<li>match=”exact” - host的cpu必须至少具备此xml定义的客户机cpu的所有能力。如果host有额外的cpu特性，这些特性不会传给客户机。</li>
+<li>match=”strict” - host的cpu必须和此xml定义的客户机cpu的能力一致，完全一致哦。</li>
+</ul>
+<p>在<feature>片段中，libvirt还自动增加了“policy”属性：</feature></p>
+<ul>
+<li>policy=”force” – 强制把这个cpu能力灌输给客户机，不管你host上是否有这个能力。这个比较少见，host本身不具备此特性的话，应该是用其他方式来模拟，如软件模拟。</li>
+<li>policy=”require” - 把这个cpu能力灌输给客户机，如果host上不存在此特性，那么就会失败。选项为默认值。</li>
+<li>policy=”optional” - 如果host能支持的话，就把这个cpu能力灌输给客户机。所以如果host不支持，不会失败。</li>
+<li>policy=”disable” - 如果host上有这个特性，就不会递给客户机。</li>
+<li>policy=”forbid” - 如果host有这个特性，则返回失败，不允许创建客户机。</li>
+</ul>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/虚拟化/">虚拟化</a>
+</div>
+
+
+  <div class="article-tags">
+  
+  <span></span> <a href="/tags/qemu/">qemu</a><a href="/tags/cpu/">cpu</a><a href="/tags/baseline/">baseline</a><a href="/tags/kvm/">kvm</a>
+  </div>
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2014/12/14/Guest-CPU-model-configuration-in-libvirt-with-QEMU-KVM/" data-title="QEMU/KVM架构下libvirt对客户机CPU模型的配置 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2014/12/14/Java_Virtual_Machine_the_Essential_Guide/" title="Java Virtual Machine - the Essential Guide">
+  <strong>上一篇：</strong><br/>
+  <span>
+  Java Virtual Machine - the Essential Guide</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2014/12/02/test/"  title="host字段变复杂了">
+ <strong>下一篇：</strong><br/> 
+ <span>host字段变复杂了
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2014/12/14/Guest-CPU-model-configuration-in-libvirt-with-QEMU-KVM/" data-title="QEMU/KVM架构下libvirt对客户机CPU模型的配置" data-url="http://www.lirenke.net/2014/12/14/Guest-CPU-model-configuration-in-libvirt-with-QEMU-KVM/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ 
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>

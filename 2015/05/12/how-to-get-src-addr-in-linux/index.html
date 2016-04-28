@@ -1,0 +1,636 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>Linux的网络报文如何确定源地址 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+    <meta name="description" itemprop="description" content="很少有关注报文的源地址是如何确定的，但其实很有讲究">
+    
+    
+    
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      <div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+						<form class="search" action="http://baidu.com" target="_blank">
+							<label>Search</label>
+						<input name="s" type="hidden" value= null ><input type="text" name="q" size="30" placeholder="Search"><br>
+						</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2015/05/12/how-to-get-src-addr-in-linux/" title="Linux的网络报文如何确定源地址" itemprop="url">Linux的网络报文如何确定源地址</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="http://www.lirenke.net/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2015-05-12T15:56:00.000Z" itemprop="datePublished"> Published May 12 2015</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			<ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#前言"><span class="toc-number">1.</span> <span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#实践DIY"><span class="toc-number">2.</span> <span class="toc-text">实践DIY</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#权威解释"><span class="toc-number">3.</span> <span class="toc-text">权威解释</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#总结"><span class="toc-number">4.</span> <span class="toc-text">总结</span></a></li></ol>
+		
+		</div>
+		
+		<h2 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h2><p>当Linux主机在发送网络报文时，有两种情况：</p>
+<ol>
+<li>主机内进程主动发送</li>
+<li>主机是在收到外界过来的报文后做的转发或者是回复</li>
+</ol>
+<p>第二种情况比较容易，转发的话就是对报文不做修改，直接转；而回复的话，即把原先是自身地址的目的地址变成回复报文的源地址，把原来是源地址的作为回复报文的目的地址；</p>
+<p>要探讨的是第一种情况。</p>
+<h2 id="实践DIY"><a href="#实践DIY" class="headerlink" title="实践DIY"></a>实践DIY</h2><p>假设在eth0网络接口上配置了多个IP，分别是172.28.0.132, 172.28.0.232, 192.168.159.233，后两个为secondary IP。</p>
+<pre><code>inet 172.28.0.132/24 scope global eth0
+   valid_lft forever preferred_lft forever
+inet 172.28.0.232/24 scope global secondary eth0
+   valid_lft forever preferred_lft forever
+inet 172.28.0.233/24 scope global secondary eth0
+   valid_lft forever preferred_lft forever
+</code></pre><p>此时，如往二层互通的172.28.0.130发ping包，则可看到：</p>
+<pre><code>tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+07:56:03.620987 00:0c:29:6b:dd:60 &gt; 00:0c:29:6d:bd:1c, ethertype IPv4 (0x0800), length 98: 172.28.0.132 &gt; 172.28.0.130: ICMP echo request, id 15104, seq 1, length 64
+</code></pre><p>源地址填的是172.28.0.132。通过“ip route show table main”命令查看当前路由，则能看到：</p>
+<pre><code>172.28.0.0/24 dev eth0  proto kernel  scope link  src 172.28.0.132
+</code></pre><p>主机在配置IP成功后，会在main路由中自动添加一条路由，意思是所有想往172.28.0.0/24网络发的报文都走eth0设备，且源地址信息为172.28.0.132。显然，os是选择了众多172.28地址中的主IP。</p>
+<p>假如此时我删除172.28.0.132这个ip，发现居然这三个IP都不见了… ubuntu就是这么暴力。</p>
+<p>恢复现场，如果我动态修改这个源地址，改成172.28.0.232，理论上再ping的话，源地址就会相应改变：</p>
+<pre><code>root@ubuntu:~# ip route change to 172.28.0.0/24 dev eth0 src 172.28.0.232
+root@ubuntu:~# ip route show table main
+default via 192.168.159.2 dev eth0 
+172.28.0.0/24 dev eth0  scope link  src 172.28.0.232
+...
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+08:10:45.413810 00:0c:29:6b:dd:60 &gt; 00:0c:29:6d:bd:1c, ethertype IPv4 (0x0800), length 98: 172.28.0.232 &gt; 172.28.0.130: ICMP echo request, id 15315, seq 1, length 64
+</code></pre><p>按照这个规律，此时在当前环境下，如果我在默认策略前，加一条策略路由，优先级比默认高，指定源地址为172.28.0.233，看是啥结果：</p>
+<pre><code>#编辑路由表，指定自己的路由表
+root@ubuntu:~# vi /etc/iproute2/rt_tables
+
+255     local
+254     main
+253     default
+0       unspec
+1       test
+
+#在test路由表中，增加我的源地址路由规则
+root@ubuntu:~# ip route add 172.28.0.0/24 src 172.28.0.233 dev eth0 table 1 
+root@ubuntu:~# ip route show table 1
+172.28.0.0/24 dev eth0  scope link  src 172.28.0.233
+
+#添加一条优先级高于默认的策略，这里为5000
+root@ubuntu:~# ip rule add from all pref 5000 table test
+root@ubuntu:~# ip rule show
+0:    from all lookup local 
+5000:    from all lookup test 
+32766:    from all lookup main 
+32767:    from all lookup default 
+
+#这是我的main路由表项依然没有变化
+root@ubuntu:~# ip route show table main
+default via 192.168.159.2 dev eth0 
+172.28.0.0/24 dev eth0  scope link  src 172.28.0.232
+
+#再次ping，查看抓包结果
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+08:27:46.442601 00:0c:29:6b:dd:60 &gt; 00:0c:29:6d:bd:1c, ethertype IPv4 (0x0800), length 98: 172.28.0.233 &gt; 172.28.0.130: ICMP echo request, id 15593, seq 1, length 64
+</code></pre><p>bingo，果然变成了策略路由指定的172.28.0.233。</p>
+<p>再进一步，现在我删除全部的172.28网段的路由，包括策略和系统main表下自动生成的路由，然后再尝试ping包：</p>
+<pre><code>#先删除路由信息，初始化环境
+root@ubuntu:~# ip route show 
+default via 192.168.159.2 dev eth0 
+192.168.122.0/24 dev virbr0  proto kernel  scope link  src 192.168.122.1 
+192.168.159.0/24 dev eth0  proto kernel  scope link  src 192.168.159.132 
+root@ubuntu:~# ip rule list
+0:    from all lookup local 
+32766:    from all lookup main 
+32767:    from all lookup default
+
+#查看172.28的ip地址依然存在
+root@ubuntu:~#  ip addr show|grep 172
+inet 172.28.0.132/24 scope global eth0
+inet 172.28.0.232/24 scope global secondary eth0
+inet 172.28.0.233/24 scope global secondary eth0
+
+#再ping包 
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+08:40:04.989469 00:0c:29:6b:dd:60 &gt; 00:50:56:e4:ba:eb, ethertype IPv4 (0x0800), length 98: 192.168.159.132 &gt; 172.28.0.130: ICMP echo request, id 15780, seq 1, length 64
+</code></pre><p>源地址已经变成了192.168.159.132，也就是说系统在路由表项中找不到src地址时，会根据当前系统的可用IP，选出一个可用的IP地址来作为源地址。</p>
+<p>退回来，清理下环境，恢复系统为我们添加的默认源地址路由信息，在eth0上配置一个范围更小的网段IP，即mask值更大，再试试看：</p>
+<pre><code>#配置一个掩码为25的ip
+root@ubuntu:~# ip addr add 172.28.0.234/25 dev eth0
+
+#此时的ip地址分布
+root@ubuntu:~# ip addr show|grep 172
+inet 172.28.0.132/24 scope global eth0
+inet 172.28.0.234/25 scope global eth0
+inet 172.28.0.232/24 scope global secondary eth0
+inet 172.28.0.233/24 scope global secondary eth0
+
+#此时的路由表结果
+root@ubuntu:~# ip route show
+default via 192.168.159.2 dev eth0 
+172.28.0.0/24 dev eth0  scope link  src 172.28.0.132 
+172.28.0.128/25 dev eth0  scope link  src 172.28.0.234 
+...
+
+#再ping的结果
+08:59:08.244197 00:0c:29:6b:dd:60 &gt; 00:0c:29:6d:bd:1c, ethertype IPv4 (0x0800), length 98: 172.28.0.234 &gt; 172.28.0.130: ICMP echo request, id 16072, seq 1, length 64   
+</code></pre><p>呵呵，这个结果又是一条有价值的信息，原来同样是primary ip的情况下，在都有路由表源地址信息时，系统选的是网络地址范围更小的那个。</p>
+<p>最后，尝试个变态的，在lo设备上配置一个172.28网段的IP地址：</p>
+<pre><code>#在lo设备加16掩码的地址
+root@ubuntu:~# ip addr add 172.28.0.235/16 dev lo
+
+#在eth0上抓包结果
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+^C
+0 packets captured
+
+#在lo上抓包结果
+09:09:12.999714 00:00:00:00:00:00 &gt; 00:00:00:00:00:00, ethertype IPv4 (0x0800), length 98: 172.28.0.235 &gt; 172.28.0.130: ICMP echo request, id 16222, seq 1, length 64 
+
+#其实这时候，随便ping一个不存在的ip地址，lo上也能抓到，也有回包
+09:10:14.023481 00:00:00:00:00:00 &gt; 00:00:00:00:00:00, ethertype IPv4 (0x0800), length 98: 172.28.0.235 &gt; 172.28.0.254: ICMP echo request, id 16236, seq 2, length 64
+09:10:14.023502 00:00:00:00:00:00 &gt; 00:00:00:00:00:00, ethertype IPv4 (0x0800), length 98: 172.28.0.254 &gt; 172.28.0.235: ICMP echo reply, id 16236, seq 2, length 64 
+</code></pre><p>可以看到，当在lo上配置网段时，系统会优先使用，且根据规则，会在local的路由表中找到源ip地址，只要目的地址在网段内，都能收到回包。</p>
+<pre><code>root@ubuntu:~# ip route show table local |grep 26
+local 172.28.0.192/26 dev lo  proto kernel  scope host  src 172.28.0.235
+</code></pre><h2 id="权威解释"><a href="#权威解释" class="headerlink" title="权威解释"></a>权威解释</h2><p>Linux的文档中，对源地址选定也有说明：</p>
+<blockquote>
+<p>Linux-2.2 selects source addresses using the following algorithm:</p>
+<ul>
+<li><p>The application may select a source address explicitly with bind(2) syscall or supplying it to sendmsg(2) via the ancillary data object IP_PKTINFO. In this case the kernel only checks the validity of the address and never tries to ‘’improve’’ an incorrect user choice, generating an error instead. 1cm NB. Never say ‘’Never’’. The sysctl option ip_dynaddr breaks this axiom. It has been made deliberately with the purpose of automatically reselecting the address on hosts with dynamic dial-out interfaces. However, this hack must not be used on multihomed hosts and especially on routers: it would break them.</p>
+<ul>
+<li>Otherwise, IP routing tables can contain an explicit source address hint for this destination. The hint is set with the src parameter to the ip route command, sec.7, p..</li>
+<li><p>Otherwise, the kernel searches through the list of addresses attached to the interface through which the packets will be routed. The search strategies are different for IP and IPv6. Namely:</p>
+</li>
+<li><p>IPv6 searches for the first valid, not deprecated address with the same scope as the destination.</p>
+<ul>
+<li>IP searches for the first valid address with a scope wider than the scope of the destination but it prefers addresses which fall to the same subnet as the nexthop of the route to the destination. Unlike IPv6, the scopes of IPv4 destinations are not encoded in their addresses but are supplied in routing tables instead (the scope parameter to the ip route command, sec.7, p.).</li>
+</ul>
+</li>
+<li><p>Otherwise, if the scope of the destination is link or host, the algorithm fails and returns a zero source address.</p>
+</li>
+<li>Otherwise, all interfaces are scanned to search for an address with an appropriate scope. The loopback device lo is always the first in the search list, so that if an address with global scope (not 127.0.0.1!) is configured on loopback, it is always preferred.</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>结合权威文档和自己DIY，总结如下：</p>
+<ol>
+<li><p>首先看应用程序是否是自己发包，是否有bind绑定ip，有的话，直接用指定的ip地址作为源地址；</p>
+</li>
+<li><p>如果没有，则查看lo设备上是否有global scope范围下的ip地址，如有，则使用lo下的源地址；（local路由表项存在源地址路由）</p>
+</li>
+<li>系统按照策略指定，依次查看对应的路由表项，是否由对应匹配的src地址，如有，则使用；</li>
+<li>如果发现有多个匹配的路由表项都有src值，则使用对应目的地址范围最小的表项值中的src值；</li>
+<li>如果路由表项也找不到src地址，则系统根据算法在当前系统上找一个ip地址作为源地址；（这里不太清晰，文档上说是IPv6情况下，直接选第一个有效的；IPv4从实践上看，有可能是取第一个网卡下的第一个primary ip地址）</li>
+</ol>
+<p>另外网上的一些相关材料：</p>
+<p><a href="http://serverfault.com/questions/12285/when-ip-aliasing-how-does-the-os-determine-which-ip-address-will-be-used-as-sour" target="_blank" rel="external">http://serverfault.com/questions/12285/when-ip-aliasing-how-does-the-os-determine-which-ip-address-will-be-used-as-sour</a><br><a href="http://linux-ip.net/gl/ip-cref/node155.html" target="_blank" rel="external">http://linux-ip.net/gl/ip-cref/node155.html</a><br><a href="http://www.07net01.com/linux/peizhiduogeipdizhishiyuanipdexuanze_13093_1346649509.html" target="_blank" rel="external">http://www.07net01.com/linux/peizhiduogeipdizhishiyuanipdexuanze_13093_1346649509.html</a></p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/网络/">网络</a>
+</div>
+
+
+  <div class="article-tags">
+  
+  <span></span> <a href="/tags/linux/">linux</a>
+  </div>
+
+</div>
+
+
+<div class="article-share" id="share">
+
+  <div data-url="http://www.lirenke.net/2015/05/12/how-to-get-src-addr-in-linux/" data-title="Linux的网络报文如何确定源地址 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+  </div>
+
+</div>
+</footer>   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+ <div class="prev" >
+ <a href="/2015/11/08/openvswitch_design/" title="Openvswitch架构理解">
+  <strong>上一篇：</strong><br/>
+  <span>
+  Openvswitch架构理解</span>
+</a>
+</div>
+
+
+<div class="next">
+<a href="/2015/05/05/live-migrate-bugfix-in-kilo/"  title="K版本热迁移的一些bug修复点">
+ <strong>下一篇：</strong><br/> 
+ <span>K版本热迁移的一些bug修复点
+</span>
+</a>
+</div>
+
+</nav>
+
+	<!-- 多说评论框 start -->
+
+	<div class="ds-thread" data-thread-key="2015/05/12/how-to-get-src-addr-in-linux/" data-title="Linux的网络报文如何确定源地址" data-url="http://www.lirenke.net/2015/05/12/how-to-get-src-addr-in-linux/"></div>
+<!-- 多说评论框 end -->
+<!-- 多说公共JS代码 start (一个网页只需插入一次) -->
+<script type="text/javascript">
+var duoshuoQuery = {short_name:"lirenke"};
+	(function() {
+		var ds = document.createElement('script');
+		ds.type = 'text/javascript';ds.async = true;
+		ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+		ds.charset = 'UTF-8';
+		(document.getElementsByTagName('head')[0] 
+		 || document.getElementsByTagName('body')[0]).appendChild(ds);
+	})();
+	</script>
+
+<!-- 多说公共JS代码 end -->
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#前言"><span class="toc-number">1.</span> <span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#实践DIY"><span class="toc-number">2.</span> <span class="toc-text">实践DIY</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#权威解释"><span class="toc-number">3.</span> <span class="toc-text">权威解释</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#总结"><span class="toc-number">4.</span> <span class="toc-text">总结</span></a></li></ol>
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+			<li><a href="/categories/docker/" title="docker">docker<sup>1</sup></a></li>
+		
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>4</sup></a></li>
+		
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		
+			<li><a href="/categories/其他/" title="其他">其他<sup>4</sup></a></li>
+		
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+		
+			<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+		
+			<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+		
+			<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+		
+			<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+		
+			<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+		
+			<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+		
+			<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+		
+			<li><a href="/tags/交换机/" title="交换机">交换机<sup>1</sup></a></li>
+		
+			<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+		
+			<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+		
+			<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+		
+			<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+		
+			<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+		
+			<li><a href="/tags/unicode/" title="unicode">unicode<sup>1</sup></a></li>
+		
+			<li><a href="/tags/steth/" title="steth">steth<sup>1</sup></a></li>
+		
+			<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            <a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+          </li>
+        
+          <li>
+            <a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+          </li>
+        
+          <li>
+            <a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+          </li>
+        
+          <li>
+            <a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+          </li>
+        
+          <li>
+            <a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+          </li>
+        
+    </ul>
+</div>
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+		<p class="copyright">Powered by <a href="http://zespia.tw/hexo/" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Pacman">Jacman</a> © 2016 
+		
+		<a href="http://www.lirenke.net/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else
+    {
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      h  = $('article h2')
+      ah = $('article h2'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  if(ah.length==0){
+    t.css('display','none');
+  }else{
+    c.click(function(){
+      ta.css('display', 'block').addClass('fadeIn');
+    });
+    o.click(function(){
+      ta.css('display', 'none');
+    });
+    $(window).scroll(function(){
+      ta.css("top",Math.max(140,320-$(this).scrollTop()));
+    });
+  };
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<a href="#" class="overlay" id="qrcode"></a>',
+  '<div class="qrcode clearfix"><span>扫描二维码分享到微信朋友圈</span><a class="qrclose" href="#nothing"></a><strong>Loading...Please wait</strong><img id="qrcode-pic" data-src="http://s.jiathis.com/qrcode.php?url=' + encodedUrl + '"/></div>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+  $('.article-share-qrcode').click(function(){
+    var imgSrc = $('#qrcode-pic').attr('data-src');
+    $('#qrcode-pic').attr('src', imgSrc);
+    $('#qrcode-pic').load(function(){
+        $('.qrcode strong').text(' ');
+    });
+  });
+});     
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+  </body>
+</html>
