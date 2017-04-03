@@ -1,0 +1,725 @@
+
+ <!DOCTYPE HTML>
+<html >
+<head>
+  <meta charset="UTF-8">
+  
+    <title>【neutron代码解析】server的启动01 | Lirenke&#39;s Blog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1,user-scalable=no">
+    
+    <meta name="author" content="Lirenke">
+    
+
+    
+    <meta name="description" content="neutron-server的api-worker和rpc-worker是如何构建起来的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="【neutron代码解析】server的启动01">
+<meta property="og:url" content="http://www.lirenke.net/2017/04/03/code-neutron-init-01/index.html">
+<meta property="og:site_name" content="Lirenke's Blog">
+<meta property="og:description" content="neutron-server的api-worker和rpc-worker是如何构建起来的">
+<meta property="og:updated_time" content="2017-04-03T16:13:21.936Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="【neutron代码解析】server的启动01">
+<meta name="twitter:description" content="neutron-server的api-worker和rpc-worker是如何构建起来的">
+
+    
+    <link rel="alternative" href="/atom.xml" title="Lirenke&#39;s Blog" type="application/atom+xml">
+    
+    
+    <link rel="icon" href="/img/favicon.ico">
+    
+    
+    <link rel="apple-touch-icon" href="/img/jacman.jpg">
+    <link rel="apple-touch-icon-precomposed" href="/img/jacman.jpg">
+    
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+  <body>
+    <header>
+      
+<div>
+		
+			<div id="imglogo">
+				<a href="/"><img src="/img/4.jpg" alt="Lirenke&#39;s Blog" title="Lirenke&#39;s Blog"/></a>
+			</div>
+			
+			<div id="textlogo">
+				<h1 class="site-name"><a href="/" title="Lirenke&#39;s Blog">Lirenke&#39;s Blog</a></h1>
+				<h2 class="blog-motto">靖康耻犹未雪 臣子恨何时灭</h2>
+			</div>
+			<div class="navbar"><a class="navbutton navmobile" href="#" title="Menu">
+			</a></div>
+			<nav class="animated">
+				<ul>
+					<ul>
+					 
+						<li><a href="/">主页</a></li>
+					
+						<li><a href="/archives">归档</a></li>
+					
+						<li><a href="/about">关于</a></li>
+					
+					<li>
+ 					
+					<form class="search" action="//google.com/search" method="get" accept-charset="utf-8">
+						<label>Search</label>
+						<input type="search" id="search" name="q" autocomplete="off" maxlength="20" placeholder="Search" />
+						<input type="hidden" name="q" value="site:www.lirenke.net">
+					</form>
+					
+					</li>
+				</ul>
+			</nav>			
+</div>
+    </header>
+    <div id="container">
+      <div id="main" class="post" itemscope itemprop="blogPost">
+  
+	<article itemprop="articleBody"> 
+		<header class="article-info clearfix">
+  <h1 itemprop="name">
+    
+      <a href="/2017/04/03/code-neutron-init-01/" title="【neutron代码解析】server的启动01" itemprop="url">【neutron代码解析】server的启动01</a>
+  </h1>
+  <p class="article-author">By
+       
+		<a href="/about" title="Lirenke" target="_blank" itemprop="author">Lirenke</a>
+		
+  <p class="article-time">
+    <time datetime="2017-04-02T17:30:46.427Z" itemprop="datePublished"> Published Apr 3 2017</time>
+    
+  </p>
+</header>
+	<div class="article-content">
+		
+		<div id="toc" class="toc-article">
+			<strong class="toc-title">Contents</strong>
+		
+			<ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#入口"><span class="toc-number">1.</span> <span class="toc-text">入口</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#API初始化"><span class="toc-number">2.</span> <span class="toc-text">API初始化</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#构建wsgi-app对象"><span class="toc-number">2.1.</span> <span class="toc-text">构建wsgi app对象</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#启动wsgi-server服务"><span class="toc-number">2.2.</span> <span class="toc-text">启动wsgi server服务</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#RPC初始化"><span class="toc-number">3.</span> <span class="toc-text">RPC初始化</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#关键点说明"><span class="toc-number">4.</span> <span class="toc-text">关键点说明</span></a></li></ol>
+		
+		</div>
+		
+		<h1 id="入口"><a href="#入口" class="headerlink" title="入口"></a>入口</h1><p>从neutron-server启动的py文件中，看到入口代码为：</p>
+<pre><code>from neutron.cmd.eventlet.server import main
+</code></pre><p>跟踪进入：<br>    def main():<br>        server.boot_server(wsgi_eventlet.eventlet_wsgi_server)</p>
+<p>server的boot_server方法首先初始化了config，setup_logging，然后直接调用了wsgi_eventlet.eventlet_wsgi_server。</p>
+<p>eventlet_wsgi_server方法有两部分：</p>
+<pre><code>def eventlet_wsgi_server():
+    neutron_api = service.serve_wsgi(service.NeutronApiService)
+    start_api_and_rpc_workers(neutron_api)
+</code></pre><p>首先做了api部分的启动工作，后做的rpc部分的启动工作。<br>service.serve_wsgi这个语句就是调用下service.NeutronApiService的create方法（classmethod），然后调用start。</p>
+<h1 id="API初始化"><a href="#API初始化" class="headerlink" title="API初始化"></a>API初始化</h1><p>NeutronApiService类属于WsgiService的子类，其create方法定义了该app名称为neutron，又一次setup_logging，然后实例化自己。在实例化过程中，除了做了osprofile的初始化，主要就是基类的初始化方法。</p>
+<p>WsgiServer类的start方法主要调用了:</p>
+<pre><code>def start(self):
+    self.wsgi_app = _run_wsgi(self.app_name)
+</code></pre><p>_run_wsgi主要干了两件事：</p>
+<h2 id="构建wsgi-app对象"><a href="#构建wsgi-app对象" class="headerlink" title="构建wsgi app对象"></a>构建wsgi app对象</h2><p>   这里直接调用了oslo.config中的load_paste_app，返回wsgi app。</p>
+<h2 id="启动wsgi-server服务"><a href="#启动wsgi-server服务" class="headerlink" title="启动wsgi server服务"></a>启动wsgi server服务</h2><p>主要使用了neutron自己的wsgi模块，定义了Server类。代码如下：</p>
+<pre><code>def run_wsgi_app(app):
+    server = wsgi.Server(&quot;Neutron&quot;)
+    server.start(app, cfg.CONF.bind_port, cfg.CONF.bind_host,
+    workers=_get_api_workers())
+    LOG.info(_LI(&quot;Neutron service started, listening on %(host)s:%(port)s&quot;), {&apos;host&apos;: cfg.CONF.bind_host, &apos;port&apos;: cfg.CONF.bind_port})
+    return server
+</code></pre><p>Service类的start方法，通过配置项定义的host地址和端口地址，调用self._get_socket方法，构建一个socket，核心代码为：</p>
+<pre><code>......
+sock = eventlet.listen(bind_addr,
+                       backlog=backlog,
+                       family=family)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+......
+</code></pre><p>接着，通过_launch方法，fork子进程做为一个api worker，作为请求进入wsgi的server。<br>方法中，定义了WorkerService的类，专门用于处理一个work的service操作，后续真正做start操作，其实就是调用了此类的start方法。</p>
+<pre><code>self._server = common_service.ProcessLauncher(cfg.CONF,
+  wait_interval=1.0)
+self._server.launch_service(service,
+workers=service.worker_process_count)
+</code></pre><p>借用了oslo.service的公共库能力，而在launch_service的代码中，使用_start_child来创建子进程：</p>
+<pre><code>LOG.info(&apos;Starting %d workers&apos;, wrap.workers)
+while self.running and len(wrap.children) &lt; wrap.workers:
+    self._start_child(wrap)
+</code></pre><p>至于子进程中如何调用到service的start方法，后面单独讲，与主流程无关。</p>
+<p>至此，neutron-server的api功能部分，就启动完毕了。现在如果一个request发过来，wsgi-server就可以调用到对应的方法了。<br>子进程独立响应api，主进程继续往下执行。</p>
+<h1 id="RPC初始化"><a href="#RPC初始化" class="headerlink" title="RPC初始化"></a>RPC初始化</h1><p>RPC的初始化得回到eventlet_wsgi_serve方法的start_api_and_rpc_workers流程。</p>
+<pre><code>def start_api_and_rpc_workers(neutron_api):
+    try:
+        worker_launcher = service.start_all_workers()
+
+        pool = eventlet.GreenPool()
+        api_thread = pool.spawn(neutron_api.wait)
+        plugin_workers_thread = pool.spawn(worker_launcher.wait)
+
+        \# api and other workers should die together. When one dies,
+        \# kill the other.
+        api_thread.link(lambda gt: plugin_workers_thread.kill())
+        plugin_workers_thread.link(lambda gt: api_thread.kill())
+
+        pool.waitall()
+    except NotImplementedError:
+</code></pre><p>这个流程主要看service.start_all_workers的行为：</p>
+<pre><code>def start_all_workers():
+    workers = _get_rpc_workers() + _get_plugins_workers()
+    return _start_workers(workers)
+</code></pre><p>workers无非就是neutron的services_plugins（包括core）实例，只不过被RpcWorker类wrap了一下，有个start方法而已。这也是框架的精妙处所在。<br>_start_workers的方法和启动api worker的流程基本一样，也是借助oslo.service库通过launch_service-&gt;_start_child来启动子进程做worker。</p>
+<p>此时，rpc的worker子进程已启动，可接受来自agent的rpc消息了。<br>然后，在start_api_and_rpc_workers继续往下，分别起了绿色线程来wait api-worker和rpc-worker。<br>结束，neutron-server主进程最终就是阻塞在pool.waitall。</p>
+<h1 id="关键点说明"><a href="#关键点说明" class="headerlink" title="关键点说明"></a>关键点说明</h1><ol>
+<li>api worker流程中，子进程是如何启用wsgi服务的？</li>
+<li>rpc worker流程中，子进程是如何构建rpc服务的？</li>
+<li>为什么api-worker和rpc-worker能够各干各的，互相独立？</li>
+<li>api-worker做到负载均衡的原理。</li>
+</ol>
+<p>在回答第一个，第二个问题前，先看下_start_child方法是怎么实现的：</p>
+<pre><code>pid = os.fork()
+if pid == 0:
+    self.launcher = self._child_process(wrap.service)
+    while True:
+        self._child_process_handle_signal()
+......
+</code></pre><p>fork后，调用了_chile_process方法，里面主要重新初始化了eventlet的hub fd，处理了和父进程之间的pipe，主要调用了以下两句：</p>
+<pre><code>launcher = Launcher(self.conf, restart_method=self.restart_method)
+launcher.launch_service(service)
+</code></pre><p>Launcher是oslo.service公共库实现的类，其中有一句：</p>
+<pre><code>self.services.add(service)
+</code></pre><p>add流程中，调用了oslo.service中定义的Services的add方法，除了把当前的service保存到self.services外，还调用了：</p>
+<pre><code>self.services.append(service)
+self.tg.add_thread(self.run_service, service, self.done)
+</code></pre><p>add_thread方法比较特殊，oslo.service模块中定义的Services类存在一个成员变量：self.tg,这个东西是oslo.service自己实现的绿色线程池，当调用self.tg.add_thread方法时，如此实现：</p>
+<pre><code>def add_thread(self, callback, *args, **kwargs):
+    gt = self.pool.spawn(callback, *args, **kwargs)
+    th = Thread(gt, self, link=False)
+    self.threads.append(th)
+    gt.link(_on_thread_done, self, th)
+    return th
+</code></pre><p>在线程池中回调方法，执行传入的callback，然后创建一个Thread（ThreadGroup自己定义），link的意思就是当gt对象结束时，从self.threads队列中删除th对象。 那么当，services的add方法执行时，其实就是启用了一个绿色线程，然后执行self.run_service(service， self.done)。在看下run_service的实现：</p>
+<pre><code>def run_service(service, done):
+    try:
+        service.start()
+    except Exception:
+        LOG.exception(&apos;Error starting thread.&apos;)
+        raise SystemExit(1)
+    else:
+        done.wait()
+</code></pre><p>就能看到执行的其实就是service对象的start方法。</p>
+<p>现在回答第一个问题：子进程起来后，创建了一个绿色线程，执行了neutron的wsgi中WorkerService对象的start方法。跟踪到start方法：</p>
+<pre><code>......
+dup_sock = self._service._socket.dup()
+if CONF.use_ssl and not self._disable_ssl:
+    dup_sock = sslutils.wrap(CONF, dup_sock)
+self._server = self._service.pool.spawn(self._service._run,
+                                        self._application,
+                                        dup_sock)
+</code></pre><p>首先做了对eventlet之前listen的socket做了dup，目的是防止api worker被kill后，os对fd资源回收影响wsgi server无法正常使用。然后做ssl的包裹处理，最后启用一个绿色线程，执行_run方法：</p>
+<pre><code>def _run(self, application, socket):
+    &quot;&quot;&quot;Start a WSGI server in a new green thread.&quot;&quot;&quot;
+    eventlet.wsgi.server(socket, application,
+                         max_size=self.num_threads,
+                         log=LOG,
+                         keepalive=CONF.wsgi_keep_alive,
+                         socket_timeout=self.client_socket_timeout)
+</code></pre><p>That’s it.</p>
+<p>现在回答第二个问题： 前面分析过，rpc的worker其实就是neutron的所有plugin对象，只是plugin对象呗RpcWorker这个类包裹了。秘密就在这里，当rpc worker同样被启用子进程然后绿色线程调用serivce的start方法时，其实就是调用了RpcWorker对象的start：</p>
+<pre><code>def start(self):
+    super(RpcWorker, self).start()
+    for plugin in self._plugins:
+        if hasattr(plugin, self.start_listeners_method):
+            try:
+                servers = getattr(plugin, self.start_listeners_method)()
+            except NotImplementedError:
+                continue
+            self._servers.extend(servers)
+</code></pre><p>很明显了，每个rpc worker都会调用所有plugin对象的“self.start_listeners_method”这个方法，在该类，我们看到：</p>
+<pre><code>class RpcWorker(neutron_worker.NeutronWorker):
+    &quot;&quot;&quot;Wraps a worker to be handled by ProcessLauncher&quot;&quot;&quot;
+    start_listeners_method = &apos;start_rpc_listeners
+    ......
+</code></pre><p>就是调用了每个plugin的start_rpc_listeners方法。<br>That’s it.</p>
+<p>现在回答第三个问题：理解前面两个问题后，这个也就容易了，仔细观察_start_child方法里面：</p>
+<pre><code>pid = os.fork()
+if pid == 0:
+    self.launcher = self._child_process(wrap.service)
+    while True:
+        self._child_process_handle_signal()
+        status, signo = self._child_wait_for_exit_or_signal(
+            self.launcher)
+        if not _is_sighup_and_daemon(signo):
+            self.launcher.wait()
+            break
+        self.launcher.restart()
+
+    os._exit(status)
+</code></pre><p>子进程是永远在while循环里的。所以，按照顺序，neutron首先初始化了api-worker，这些子进程在这个循环里面专门用于处理api请求，而此时的plugin对象还没有调用start_rpc_liteners对象。然后，主进程初始化rpc-worker，而wsgi的server方法是在api-worker的子进程中通过start创建的，主进程没有被初始化，rpc-worker只调用plugin的start-rpc方法而已，虽然有eventlet.listen的fd句柄，但不会处理api请求。</p>
+<p>现在回答第四个问题：api-worker的负载均衡，是通过主进程创建socket，调用eventlet.listen，然后fork子进程，fork之前dup了fd保持各自独立，fork之后各自调用wsgi.server，通过内核的资源抢占自然做到了负载均衡的效果。例外，rpc-worker是通过rabbitmq的创建同名队列的方式做到负载均衡的。</p>
+  
+	</div>
+		<footer class="article-footer clearfix">
+<div class="article-catetags">
+
+<div class="article-categories">
+  <span></span>
+  <a class="article-category-link" href="/categories/openstack/">openstack</a>
+</div>
+
+
+  <div class="article-tags">
+  
+  <span></span> <a href="/tags/neutron/">neutron</a>
+  </div>
+
+</div>
+
+
+
+	<div class="article-share" id="share">
+	
+	  <div data-url="http://www.lirenke.net/2017/04/03/code-neutron-init-01/" data-title="【neutron代码解析】server的启动01 | Lirenke&#39;s Blog" data-tsina="null" class="share clearfix">
+	  </div>
+	
+	</div>
+
+
+</footer>
+
+   	       
+	</article>
+	
+<nav class="article-nav clearfix">
+ 
+
+<div class="next">
+<a href="/2017/03/28/devstack/"  title="devstack初使用">
+ <strong>下一篇：</strong><br/> 
+ <span>devstack初使用
+</span>
+</a>
+</div>
+
+</nav>
+
+	
+
+</div>  
+      <div class="openaside"><a class="navbutton" href="#" title="Show Sidebar"></a></div>
+
+  <div id="toc" class="toc-aside">
+  <strong class="toc-title">Contents</strong>
+ 
+ <ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#入口"><span class="toc-number">1.</span> <span class="toc-text">入口</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#API初始化"><span class="toc-number">2.</span> <span class="toc-text">API初始化</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#构建wsgi-app对象"><span class="toc-number">2.1.</span> <span class="toc-text">构建wsgi app对象</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#启动wsgi-server服务"><span class="toc-number">2.2.</span> <span class="toc-text">启动wsgi server服务</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#RPC初始化"><span class="toc-number">3.</span> <span class="toc-text">RPC初始化</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#关键点说明"><span class="toc-number">4.</span> <span class="toc-text">关键点说明</span></a></li></ol>
+ 
+  </div>
+
+<div id="asidepart">
+<div class="closeaside"><a class="closebutton" href="#" title="Hide Sidebar"></a></div>
+<aside class="clearfix">
+
+  
+
+
+  
+<div class="categorieslist">
+	<p class="asidetitle">Categories</p>
+		<ul>
+		
+		  
+			<li><a href="/categories/docker/" title="docker">docker<sup>2</sup></a></li>
+		  
+		
+		  
+			<li><a href="/categories/java/" title="java">java<sup>1</sup></a></li>
+		  
+		
+		  
+			<li><a href="/categories/linux/" title="linux">linux<sup>5</sup></a></li>
+		  
+		
+		  
+			<li><a href="/categories/openstack/" title="openstack">openstack<sup>6</sup></a></li>
+		  
+		
+		  
+			<li><a href="/categories/python/" title="python">python<sup>2</sup></a></li>
+		  
+		
+		  
+			<li><a href="/categories/其他/" title="其他">其他<sup>5</sup></a></li>
+		  
+		
+		  
+			<li><a href="/categories/网络/" title="网络">网络<sup>8</sup></a></li>
+		  
+		
+		  
+			<li><a href="/categories/虚拟化/" title="虚拟化">虚拟化<sup>3</sup></a></li>
+		  
+		
+		</ul>
+</div>
+
+
+  
+<div class="tagslist">
+	<p class="asidetitle">Tags</p>
+		<ul class="clearfix">
+		
+			
+				<li><a href="/tags/linux/" title="linux">linux<sup>5</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/docker/" title="docker">docker<sup>2</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/kvm/" title="kvm">kvm<sup>2</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/qemu/" title="qemu">qemu<sup>2</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/cinder/" title="cinder">cinder<sup>2</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/cpu/" title="cpu">cpu<sup>2</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/vxlan/" title="vxlan">vxlan<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/conntrack/" title="conntrack">conntrack<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/devstack/" title="devstack">devstack<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/java/" title="java">java<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/jvm/" title="jvm">jvm<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/baseline/" title="baseline">baseline<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/consistencygroup/" title="consistencygroup">consistencygroup<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/gre/" title="gre">gre<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/连接跟踪/" title="连接跟踪">连接跟踪<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/neutron/" title="neutron">neutron<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/nova/" title="nova">nova<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/ovs/" title="ovs">ovs<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/nat/" title="nat">nat<sup>1</sup></a></li>
+			
+		
+			
+				<li><a href="/tags/flask/" title="flask">flask<sup>1</sup></a></li>
+			
+		
+		</ul>
+</div>
+
+
+  <div class="linkslist">
+  <p class="asidetitle">Links</p>
+    <ul>
+        
+          <li>
+            
+            	<a href="http://blog.csdn.net/canxinghen" target="_blank" title="团队博客">团队博客</a>
+            
+          </li>
+        
+          <li>
+            
+            	<a href="http://lirenke.github.io" target="_blank" title="GitHub镜像站点">GitHub镜像站点</a>
+            
+          </li>
+        
+          <li>
+            
+            	<a href="http://duoshuo.com" target="_blank" title="多说评论">多说评论</a>
+            
+          </li>
+        
+          <li>
+            
+            	<a href="http://blog.csdn.net/dog250" target="_blank" title="大牛dog250">大牛dog250</a>
+            
+          </li>
+        
+          <li>
+            
+            	<a href="http://hexo.io" target="_blank" title="Hexo">Hexo</a>
+            
+          </li>
+        
+    </ul>
+</div>
+
+  
+
+
+  <div class="rsspart">
+	<a href="/atom.xml" target="_blank" title="rss">RSS</a>
+</div>
+
+  <div class="weiboshow">
+  <p class="asidetitle">Weibo</p>
+    <iframe width="100%" height="119" class="share_self"  frameborder="0" scrolling="no" src="http://widget.weibo.com/weiboshow/index.php?language=&width=0&height=119&fansRow=2&ptype=1&speed=0&skin=9&isTitle=1&noborder=1&isWeibo=0&isFans=0&uid=null&verifier=&dpc=1"></iframe>
+</div>
+
+
+</aside>
+</div>
+    </div>
+    <footer><div id="footer" >
+	
+	<div class="line">
+		<span></span>
+		<div class="author"></div>
+	</div>
+	
+	
+	<section class="info">
+		<p> Hello ,I&#39;m Lirenke Page in Github. <br/>
+			Go~ Shoryuken!.</p>
+	</section>
+	 
+	<div class="social-font" class="clearfix">
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	</div>
+			
+		
+
+		<p class="copyright">
+		Powered by <a href="http://hexo.io" target="_blank" title="hexo">hexo</a> and Theme by <a href="https://github.com/wuchong/jacman" target="_blank" title="Jacman">Jacman</a> © 2017 
+		
+		<a href="/about" target="_blank" title="Lirenke">Lirenke</a>
+		
+		
+		</p>
+</div>
+</footer>
+    <script src="/js/jquery-2.0.3.min.js"></script>
+<script src="/js/jquery.imagesloaded.min.js"></script>
+<script src="/js/gallery.js"></script>
+<script src="/js/jquery.qrcode-0.12.0.min.js"></script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.navbar').click(function(){
+    $('header nav').toggleClass('shownav');
+  });
+  var myWidth = 0;
+  function getSize(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+  };
+  var m = $('#main'),
+      a = $('#asidepart'),
+      c = $('.closeaside'),
+      o = $('.openaside');
+  c.click(function(){
+    a.addClass('fadeOut').css('display', 'none');
+    o.css('display', 'block').addClass('fadeIn');
+    m.addClass('moveMain');
+  });
+  o.click(function(){
+    o.css('display', 'none').removeClass('beforeFadeIn');
+    a.css('display', 'block').removeClass('fadeOut').addClass('fadeIn');      
+    m.removeClass('moveMain');
+  });
+  $(window).scroll(function(){
+    o.css("top",Math.max(80,260-$(this).scrollTop()));
+  });
+  
+  $(window).resize(function(){
+    getSize(); 
+    if (myWidth >= 1024) {
+      $('header nav').removeClass('shownav');
+    }else{
+      m.removeClass('moveMain');
+      a.css('display', 'block').removeClass('fadeOut');
+      o.css('display', 'none');
+      
+      $('#toc.toc-aside').css('display', 'none');
+        
+    }
+  });
+});
+</script>
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var ai = $('.article-content>iframe'),
+      ae = $('.article-content>embed'),
+      t  = $('#toc'),
+      ta = $('#toc.toc-aside'),
+      o  = $('.openaside'),
+      c  = $('.closeaside');
+  if(ai.length>0){
+    ai.wrap('<div class="video-container" />');
+  };
+  if(ae.length>0){
+   ae.wrap('<div class="video-container" />');
+  };
+  c.click(function(){
+    ta.css('display', 'block').addClass('fadeIn');
+  });
+  o.click(function(){
+    ta.css('display', 'none');
+  });
+  $(window).scroll(function(){
+    ta.css("top",Math.max(140,320-$(this).scrollTop()));
+  });
+});
+</script>
+
+
+<script type="text/javascript">
+$(document).ready(function(){ 
+  var $this = $('.share'),
+      url = $this.attr('data-url'),
+      encodedUrl = encodeURIComponent(url),
+      title = $this.attr('data-title'),
+      tsina = $this.attr('data-tsina'),
+      description = $this.attr('description');
+  var html = [
+  '<div class="hoverqrcode clearfix"></div>',
+  '<a class="overlay" id="qrcode"></a>',
+  '<a href="https://www.facebook.com/sharer.php?u=' + encodedUrl + '" class="article-share-facebook" target="_blank" title="Facebook"></a>',
+  '<a href="https://twitter.com/intent/tweet?url=' + encodedUrl + '" class="article-share-twitter" target="_blank" title="Twitter"></a>',
+  '<a href="#qrcode" class="article-share-qrcode" title="微信"></a>',
+  '<a href="http://widget.renren.com/dialog/share?resourceUrl=' + encodedUrl + '&srcUrl=' + encodedUrl + '&title=' + title +'" class="article-share-renren" target="_blank" title="人人"></a>',
+  '<a href="http://service.weibo.com/share/share.php?title='+title+'&url='+encodedUrl +'&ralateUid='+ tsina +'&searchPic=true&style=number' +'" class="article-share-weibo" target="_blank" title="微博"></a>',
+  '<span title="Share to"></span>'
+  ].join('');
+  $this.append(html);
+
+  $('.hoverqrcode').hide();
+
+  var myWidth = 0;
+  function updatehoverqrcode(){
+    if( typeof( window.innerWidth ) == 'number' ) {
+      myWidth = window.innerWidth;
+    } else if( document.documentElement && document.documentElement.clientWidth) {
+      myWidth = document.documentElement.clientWidth;
+    };
+    var qrsize = myWidth > 1024 ? 200:100;
+    var options = {render: 'image', size: qrsize, fill: '#2ca6cb', text: url, radius: 0.5, quiet: 1};
+    var p = $('.article-share-qrcode').position();
+    $('.hoverqrcode').empty().css('width', qrsize).css('height', qrsize)
+                          .css('left', p.left-qrsize/2+20).css('top', p.top-qrsize-10)
+                          .qrcode(options);
+  };
+  $(window).resize(function(){
+    $('.hoverqrcode').hide();
+  });
+  $('.article-share-qrcode').click(function(){
+    updatehoverqrcode();
+    $('.hoverqrcode').toggle();
+  });
+  $('.article-share-qrcode').hover(function(){}, function(){
+      $('.hoverqrcode').hide();
+  });
+});   
+</script>
+
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.css" media="screen" type="text/css">
+<script src="/fancybox/jquery.fancybox.pack.js"></script>
+<script type="text/javascript">
+$(document).ready(function(){ 
+  $('.article-content').each(function(i){
+    $(this).find('img').each(function(){
+      if ($(this).parent().hasClass('fancybox')) return;
+      var alt = this.alt;
+      if (alt) $(this).after('<span class="caption">' + alt + '</span>');
+      $(this).wrap('<a href="' + this.src + '" title="' + alt + '" class="fancybox"></a>');
+    });
+    $(this).find('.fancybox').each(function(){
+      $(this).attr('rel', 'article' + i);
+    });
+  });
+  if($.fancybox){
+    $('.fancybox').fancybox();
+  }
+}); 
+</script>
+
+
+
+<!-- Analytics Begin -->
+
+
+
+
+
+<!-- Analytics End -->
+
+<!-- Totop Begin -->
+
+	<div id="totop">
+	<a title="Back to Top"><img src="/img/scrollup.png"/></a>
+	</div>
+	<script src="/js/totop.js"></script>
+
+<!-- Totop End -->
+
+<!-- MathJax Begin -->
+<!-- mathjax config similar to math.stackexchange -->
+
+
+<!-- MathJax End -->
+
+<!-- Tiny_search Begin -->
+
+<!-- Tiny_search End -->
+
+  </body>
+</html>
